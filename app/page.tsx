@@ -127,6 +127,7 @@ const adminAccount = { username: "admin", password: "healthy2026" };
 const exerciseTags = ["游泳", "攀岩", "健身", "瑜伽", "徒步", "跳操", "跑步", "散步", "自定义"];
 const leaveReasons = ["生理期", "身体不适", "受伤恢复", "太累了", "特殊安排"];
 const intensities: Intensity[] = ["轻松", "正常", "很累"];
+const durationOptions = [30, 60, 90, 120];
 
 const exerciseArt: Record<string, string> = {
   游泳: "/checkin-assets/swim.png",
@@ -669,6 +670,8 @@ export default function Home() {
   const [view, setView] = useState<ViewKey>("home");
   const [selectedExerciseTag, setSelectedExerciseTag] = useState("健身");
   const [selectedDuration, setSelectedDuration] = useState(30);
+  const [showCustomDuration, setShowCustomDuration] = useState(false);
+  const [customDurationInput, setCustomDurationInput] = useState("");
   const [selectedIntensity, setSelectedIntensity] = useState<Intensity>("正常");
   const [selectedMealId, setSelectedMealId] = useState<MealKey>("lunch");
   const [selectedMealField, setSelectedMealField] = useState<MealFieldKey>("greens");
@@ -1473,7 +1476,7 @@ export default function Home() {
             {isPigReminder && (
               <section className="reminder-sheet" aria-label="运动提醒">
                 <strong>连续 {missedExerciseDays} 天没运动啦</strong>
-                <span>先做一次 15 分钟轻松运动，小猪状态就会恢复成你的形象。</span>
+                <span>先做一次 30 分钟轻松运动，小猪状态就会恢复成你的形象。</span>
                 <button type="button" onClick={() => setView("exercise")}>去运动</button>
               </section>
             )}
@@ -1569,12 +1572,53 @@ export default function Home() {
               <div>
                 <h2>时长</h2>
                 <div className="tag-grid small">
-                  {[15, 30, 45, 60].map((duration) => (
-                    <button className={selectedDuration === duration ? "active" : ""} key={duration} type="button" onClick={() => setSelectedDuration(duration)}>
+                  {durationOptions.map((duration) => (
+                    <button
+                      className={!showCustomDuration && selectedDuration === duration ? "active" : ""}
+                      key={duration}
+                      type="button"
+                      onClick={() => {
+                        setShowCustomDuration(false);
+                        setSelectedDuration(duration);
+                      }}
+                    >
                       {duration} 分钟
                     </button>
                   ))}
+                  <button
+                    className={showCustomDuration ? "active" : ""}
+                    type="button"
+                    onClick={() => {
+                      setShowCustomDuration(true);
+                      setCustomDurationInput(
+                        durationOptions.includes(selectedDuration) ? "" : `${selectedDuration}`
+                      );
+                    }}
+                  >
+                    自定义
+                  </button>
                 </div>
+                {showCustomDuration && (
+                  <div className="custom-duration-input">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={600}
+                      placeholder="输入分钟数"
+                      value={customDurationInput}
+                      onChange={(event) => {
+                        const raw = event.target.value;
+                        setCustomDurationInput(raw);
+                        const parsed = Number.parseInt(raw, 10);
+                        if (Number.isFinite(parsed) && parsed > 0) {
+                          setSelectedDuration(Math.min(parsed, 600));
+                        }
+                      }}
+                    />
+                    <span>分钟</span>
+                  </div>
+                )}
               </div>
               <div>
                 <h2>强度</h2>

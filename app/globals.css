@@ -2468,6 +2468,35 @@ h2,
   background: #fff3f0;
 }
 
+.custom-duration-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 12px;
+  min-height: 34px;
+  border: 1px solid rgba(234, 216, 186, 0.96);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.82);
+}
+
+.custom-duration-input input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--brown-dark);
+  outline: none;
+}
+
+.custom-duration-input span {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--muted);
+}
+
 .primary-sticker {
   width: min(100%, 258px);
   min-height: 50px;
@@ -5182,7 +5211,7 @@ h2,
 }
 
 .podium-stage.single .podium-user.first {
-  top: 52px !important;
+  top: 37px !important;
   left: 50%;
   transform: translateX(-50%);
 }
