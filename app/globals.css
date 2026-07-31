@@ -5402,6 +5402,7 @@ h2,
 }
 
 .appearance-sheet {
+  width: 100%;
   margin-top: 14px;
 }
 
@@ -5430,7 +5431,8 @@ h2,
 }
 
 /* 标题字体 / 正文字体：只有两个选项，做成并排的二选一切换按钮，
-   比下拉菜单更简单，也不会有下拉层级对不齐的问题 */
+   比下拉菜单更简单，也不会有下拉层级对不齐的问题；按钮本身直接用
+   对应字体渲染文案，不需要额外的示例文字 */
 .font-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -5439,29 +5441,17 @@ h2,
 
 .font-toggle button {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 56px;
+  min-height: 40px;
   border: 1px solid rgba(234, 216, 186, 0.96);
-  border-radius: 16px;
+  border-radius: 999px;
   background: rgba(255, 253, 247, 0.82);
   color: var(--brown-dark);
   cursor: pointer;
-  padding: 8px 6px;
+  padding: 0 10px;
+  font-size: 15px;
   text-align: center;
-}
-
-.font-toggle button > small {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.font-toggle button > span {
-  font-size: 19px;
-  line-height: 1.2;
 }
 
 .font-toggle button.active {

@@ -264,8 +264,6 @@ const bodyFontOptions: Array<{ id: FontOptionId; label: string; cssValue: string
 
 const fontOptions = [...headingFontOptions, ...bodyFontOptions.filter((opt) => !headingFontOptions.some((h) => h.id === opt.id))];
 
-const fontPreviewSample = "小柴打卡手帐";
-
 const textSizeOptions: Array<{ id: TextSize; label: string }> = [
   { id: "sm", label: "小" },
   { id: "md", label: "中" },
@@ -1439,7 +1437,11 @@ export default function Home() {
   return (
     <main
       className={`app-canvas bg-${currentBackground.id} text-size-${currentTextSize.id}`}
-      style={{ "--font-enjoyable": currentHeadingFont.cssValue, "--font-influencer": currentBodyFont.cssValue } as CSSProperties}
+      style={{
+        fontFamily: currentBodyFont.cssValue,
+        "--font-enjoyable": currentHeadingFont.cssValue,
+        "--font-influencer": currentBodyFont.cssValue,
+      } as CSSProperties}
       onClickCapture={handleAppClick}
     >
       <audio ref={bgmRef} src="/checkin-assets/bgm.wav" loop preload="auto" />
@@ -2265,9 +2267,9 @@ export default function Home() {
                       key={option.id}
                       type="button"
                       onClick={() => changeHeadingFont(option.id)}
+                      style={{ fontFamily: option.cssValue }}
                     >
-                      <small>{option.label}</small>
-                      <span style={{ fontFamily: option.cssValue }}>{fontPreviewSample}</span>
+                      {option.label}
                     </button>
                   ))}
                 </div>
@@ -2281,9 +2283,9 @@ export default function Home() {
                       key={option.id}
                       type="button"
                       onClick={() => changeBodyFont(option.id)}
+                      style={{ fontFamily: option.cssValue }}
                     >
-                      <small>{option.label}</small>
-                      <span style={{ fontFamily: option.cssValue }}>{fontPreviewSample}</span>
+                      {option.label}
                     </button>
                   ))}
                 </div>
