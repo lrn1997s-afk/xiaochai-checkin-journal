@@ -4,14 +4,56 @@ import { headers } from "next/headers";
 import "./globals.css";
 
 const enjoyable = localFont({
-  src: "./fonts/ELEYANG-Enjoyable-Regular.ttf",
-  variable: "--font-enjoyable",
+  src: "./fonts/ELEYANG-Enjoyable-Regular.woff2",
+  variable: "--font-src-enjoyable",
   display: "swap",
 });
 
 const influencer = localFont({
-  src: "./fonts/ELEYANG-Influencer-Regular.ttf",
-  variable: "--font-influencer",
+  src: "./fonts/ELEYANG-Influencer-Regular.woff2",
+  variable: "--font-src-influencer",
+  display: "swap",
+});
+
+const seto = localFont({
+  src: "./fonts/seto.woff2",
+  variable: "--font-src-seto",
+  display: "swap",
+});
+
+const lemiBearDiary = localFont({
+  src: "./fonts/lemi-bear-diary.woff2",
+  variable: "--font-src-lemi-bear",
+  display: "swap",
+});
+
+const zcoolKuaiLe = localFont({
+  src: "./fonts/zcool-kuaile.woff2",
+  variable: "--font-src-zcool-kuaile",
+  display: "swap",
+});
+
+const lemiCrayon = localFont({
+  src: "./fonts/lemi-crayon.woff2",
+  variable: "--font-src-lemi-crayon",
+  display: "swap",
+});
+
+const youzai = localFont({
+  src: "./fonts/youzai.woff2",
+  variable: "--font-src-youzai",
+  display: "swap",
+});
+
+const jiyingRound = localFont({
+  src: "./fonts/jiying-round.woff2",
+  variable: "--font-src-jiying-round",
+  display: "swap",
+});
+
+const alibabaPuHuiTiLight = localFont({
+  src: "./fonts/alibaba-puhuiti-light.woff2",
+  variable: "--font-src-alibaba-light",
   display: "swap",
 });
 
@@ -49,7 +91,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${enjoyable.variable} ${influencer.variable} antialiased`}>{children}</body>
+      <body
+        className={`${enjoyable.variable} ${influencer.variable} ${seto.variable} ${lemiBearDiary.variable} ${zcoolKuaiLe.variable} ${lemiCrayon.variable} ${youzai.variable} ${jiyingRound.variable} ${alibabaPuHuiTiLight.variable} antialiased`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

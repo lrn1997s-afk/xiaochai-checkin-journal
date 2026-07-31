@@ -5378,7 +5378,28 @@ h2,
   grid-column: 1 / -1;
 }
 
-/* ---- 外观设置：字体样式 + 字号 ---- */
+/* ---- 外观设置：标题/正文字体 + 字号 ---- */
+
+.settings-block-heading {
+  display: grid;
+  gap: 2px;
+  padding: 0 5px;
+  margin-bottom: 2px;
+}
+
+.settings-block-heading h2 {
+  margin: 0;
+  color: var(--brown);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.settings-block-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
 
 .appearance-row {
   display: grid;
@@ -5396,22 +5417,6 @@ h2,
   grid-template-columns: 1fr;
 }
 
-.appearance-row .tag-grid.small button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.appearance-row .tag-grid.small button em {
-  font-style: normal;
-  font-weight: 500;
-  font-size: 11px;
-  color: var(--muted);
-}
-
 .appearance-row .text-size-picker.tag-grid.small {
   grid-template-columns: repeat(3, 1fr);
 }
@@ -5421,11 +5426,66 @@ h2,
   text-align: center;
 }
 
-/* 字体：简约黑体——把手写体变量整体替换成系统无衬线字体，
-   这样其余引用 var(--font-enjoyable)/var(--font-influencer) 的地方会自动跟着变 */
-.app-canvas.font-clean {
-  --font-enjoyable: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
-  --font-influencer: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+/* 标题字体 / 正文字体：自定义下拉选择器（不用原生 select，
+   这样才能让每个选项用它自己的字体渲染出来做预览，
+   原生 select 的下拉列表在手机上很多时候不吃页面自定义样式） */
+.font-select {
+  position: relative;
+}
+
+.font-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  border: 1px solid rgba(234, 216, 186, 0.96);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.82);
+  color: var(--brown-dark);
+  cursor: pointer;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.font-select-trigger em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.font-select-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(234, 216, 186, 0.96);
+  border-radius: 18px;
+  background: #fffdf7;
+  box-shadow: 0 10px 24px rgba(90, 57, 35, 0.16);
+}
+
+.font-select-menu button {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--brown-dark);
+  cursor: pointer;
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 15px;
+}
+
+.font-select-menu button.active {
+  border-color: #f0b44a;
+  background: #fff0bd;
 }
 
 /* 字号：整体缩放手帐卡片内容，避免逐个改几千行的 font-size 数值 */

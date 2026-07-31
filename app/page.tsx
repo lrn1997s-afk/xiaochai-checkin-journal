@@ -1,13 +1,23 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 type ViewKey = "home" | "exercise" | "diet" | "records" | "rank" | "me" | "success";
 type Intensity = "轻松" | "正常" | "很累";
 type BackgroundTheme = "blue" | "green" | "peach";
 type Visibility = "public" | "private";
-type FontStyle = "handwriting" | "clean";
+type FontOptionId =
+  | "enjoyable"
+  | "influencer"
+  | "clean"
+  | "seto"
+  | "lemi-bear"
+  | "zcool-kuaile"
+  | "lemi-crayon"
+  | "youzai"
+  | "jiying-round"
+  | "alibaba-light";
 type TextSize = "sm" | "md" | "lg";
 type PhotoStatus = "pending" | "approved" | "rejected";
 
@@ -100,7 +110,8 @@ type AppState = {
   groups?: Group[];
   soundMuted?: boolean;
   users?: CommunityUser[];
-  fontStyle?: FontStyle;
+  headingFont?: FontOptionId;
+  bodyFont?: FontOptionId;
   textSize?: TextSize;
 };
 
@@ -251,9 +262,17 @@ const backgroundOptions: Array<{ id: BackgroundTheme; label: string }> = [
   { id: "peach", label: "桃格" },
 ];
 
-const fontStyleOptions: Array<{ id: FontStyle; label: string; desc: string }> = [
-  { id: "handwriting", label: "手写体", desc: "原本的手帐风格" },
-  { id: "clean", label: "简约黑体", desc: "更清晰易读" },
+const fontOptions: Array<{ id: FontOptionId; label: string; cssValue: string }> = [
+  { id: "enjoyable", label: "手写体·圆润", cssValue: 'var(--font-src-enjoyable), "PingFang SC", sans-serif' },
+  { id: "influencer", label: "手写体·随性", cssValue: 'var(--font-src-influencer), "PingFang SC", sans-serif' },
+  { id: "clean", label: "简约黑体", cssValue: '"PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif' },
+  { id: "seto", label: "濑户体", cssValue: 'var(--font-src-seto), "PingFang SC", sans-serif' },
+  { id: "lemi-bear", label: "小熊日记体", cssValue: 'var(--font-src-lemi-bear), "PingFang SC", sans-serif' },
+  { id: "zcool-kuaile", label: "站酷快乐体", cssValue: 'var(--font-src-zcool-kuaile), "PingFang SC", sans-serif' },
+  { id: "lemi-crayon", label: "乐米蜡笔体", cssValue: 'var(--font-src-lemi-crayon), "PingFang SC", sans-serif' },
+  { id: "youzai", label: "悠哉体", cssValue: 'var(--font-src-youzai), "PingFang SC", sans-serif' },
+  { id: "jiying-round", label: "毁片圆体", cssValue: 'var(--font-src-jiying-round), "PingFang SC", sans-serif' },
+  { id: "alibaba-light", label: "阿里普惠体·细", cssValue: 'var(--font-src-alibaba-light), "PingFang SC", sans-serif' },
 ];
 
 const textSizeOptions: Array<{ id: TextSize; label: string }> = [
@@ -566,7 +585,8 @@ function createInitialState(): AppState {
     groups: defaultGroups,
     soundMuted: false,
     users: createCommunityUsers(today),
-    fontStyle: "handwriting",
+    headingFont: "enjoyable",
+    bodyFont: "influencer",
     textSize: "md",
   };
 }
@@ -704,6 +724,7 @@ export default function Home() {
   const [adminPointAmount, setAdminPointAmount] = useState(50);
   const [showAllMealHistory, setShowAllMealHistory] = useState(false);
   const [statusBarTime, setStatusBarTime] = useState(() => formatStatusBarTime(new Date()));
+  const [openFontMenu, setOpenFontMenu] = useState<"heading" | "body" | null>(null);
   const [newGroupName, setNewGroupName] = useState("");
   const [joinGroupCode, setJoinGroupCode] = useState("");
   const [exercisePhotoPreview, setExercisePhotoPreview] = useState<ExercisePhotoPreview | null>(null);
@@ -721,7 +742,8 @@ export default function Home() {
   const dailyTitleLines = splitHeadline(dailyQuote.title);
   const dailyFoodAdvice = fitnessDietAdvice[getDailyAdviceIndex(todayKey)] ?? fitnessDietAdvice[0];
   const currentBackground = backgroundOptions.find((item) => item.id === state.backgroundTheme) ?? backgroundOptions[0];
-  const currentFontStyle = fontStyleOptions.find((item) => item.id === state.fontStyle) ?? fontStyleOptions[0];
+  const currentHeadingFont = fontOptions.find((item) => item.id === state.headingFont) ?? fontOptions[0];
+  const currentBodyFont = fontOptions.find((item) => item.id === state.bodyFont) ?? fontOptions[1];
   const currentTextSize = textSizeOptions.find((item) => item.id === state.textSize) ?? textSizeOptions[1];
   const groups = mergeDefaultGroups(state.groups);
   const communityUsers = mergeCommunityUsers(state.users, new Date());
@@ -830,6 +852,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (view !== "me") setOpenFontMenu(null);
+  }, [view]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       const saved = window.localStorage.getItem("cozy-health-state-v2");
       if (!saved) {
@@ -880,7 +906,16 @@ export default function Home() {
           groupSetupVersion: currentGroupSetupVersion,
           groups: savedGroups,
           soundMuted: parsed.soundMuted ?? fallback.soundMuted,
-          fontStyle: fontStyleOptions.some((option) => option.id === parsed.fontStyle) ? parsed.fontStyle : fallback.fontStyle,
+          headingFont: fontOptions.some((option) => option.id === parsed.headingFont)
+            ? parsed.headingFont
+            : (parsed as { fontStyle?: string }).fontStyle === "clean"
+              ? "clean"
+              : fallback.headingFont,
+          bodyFont: fontOptions.some((option) => option.id === parsed.bodyFont)
+            ? parsed.bodyFont
+            : (parsed as { fontStyle?: string }).fontStyle === "clean"
+              ? "clean"
+              : fallback.bodyFont,
           textSize: textSizeOptions.some((option) => option.id === parsed.textSize) ? parsed.textSize : fallback.textSize,
           users: mergeCommunityUsers(parsed.users, new Date()).map((user) => ({
             ...user,
@@ -966,6 +1001,9 @@ export default function Home() {
     if (!soundMuted && state.onboarded) {
       bgmRef.current?.play().catch(() => {});
     }
+    if (openFontMenu && !target.closest(".font-select")) {
+      setOpenFontMenu(null);
+    }
   }
 
   function showSuccess(text: string) {
@@ -1013,10 +1051,17 @@ export default function Home() {
     }));
   }
 
-  function changeFontStyle(style: FontStyle) {
+  function changeHeadingFont(id: FontOptionId) {
     setState((current) => ({
       ...current,
-      fontStyle: style,
+      headingFont: id,
+    }));
+  }
+
+  function changeBodyFont(id: FontOptionId) {
+    setState((current) => ({
+      ...current,
+      bodyFont: id,
     }));
   }
 
@@ -1410,7 +1455,8 @@ export default function Home() {
 
   return (
     <main
-      className={`app-canvas bg-${currentBackground.id} font-${currentFontStyle.id} text-size-${currentTextSize.id}`}
+      className={`app-canvas bg-${currentBackground.id} text-size-${currentTextSize.id}`}
+      style={{ "--font-enjoyable": currentHeadingFont.cssValue, "--font-influencer": currentBodyFont.cssValue } as CSSProperties}
       onClickCapture={handleAppClick}
     >
       <audio ref={bgmRef} src="/checkin-assets/bgm.wav" loop preload="auto" />
@@ -2223,24 +2269,76 @@ export default function Home() {
             </section>
 
             <section className="appearance-sheet" aria-label="外观设置">
-              <div className="record-mini-heading">
-                <span>外观设置</span>
-                <strong>字体不习惯可以在这换</strong>
+              <div className="settings-block-heading">
+                <h2>外观设置</h2>
+                <p>字体看着累？换个自己顺眼的。</p>
               </div>
               <div className="appearance-row">
-                <small>字体</small>
-                <div className="tag-grid small">
-                  {fontStyleOptions.map((option) => (
-                    <button
-                      className={currentFontStyle.id === option.id ? "active" : ""}
-                      key={option.id}
-                      type="button"
-                      onClick={() => changeFontStyle(option.id)}
-                    >
-                      {option.label}
-                      <em>{option.desc}</em>
-                    </button>
-                  ))}
+                <small>标题字体</small>
+                <div className="font-select">
+                  <button
+                    className="font-select-trigger"
+                    type="button"
+                    style={{ fontFamily: currentHeadingFont.cssValue }}
+                    onClick={() => setOpenFontMenu(openFontMenu === "heading" ? null : "heading")}
+                  >
+                    <span>{currentHeadingFont.label}</span>
+                    <em aria-hidden="true">{openFontMenu === "heading" ? "▲" : "▼"}</em>
+                  </button>
+                  {openFontMenu === "heading" && (
+                    <div className="font-select-menu" role="listbox">
+                      {fontOptions.map((option) => (
+                        <button
+                          className={currentHeadingFont.id === option.id ? "active" : ""}
+                          key={option.id}
+                          type="button"
+                          role="option"
+                          aria-selected={currentHeadingFont.id === option.id}
+                          style={{ fontFamily: option.cssValue }}
+                          onClick={() => {
+                            changeHeadingFont(option.id);
+                            setOpenFontMenu(null);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="appearance-row">
+                <small>正文字体</small>
+                <div className="font-select">
+                  <button
+                    className="font-select-trigger"
+                    type="button"
+                    style={{ fontFamily: currentBodyFont.cssValue }}
+                    onClick={() => setOpenFontMenu(openFontMenu === "body" ? null : "body")}
+                  >
+                    <span>{currentBodyFont.label}</span>
+                    <em aria-hidden="true">{openFontMenu === "body" ? "▲" : "▼"}</em>
+                  </button>
+                  {openFontMenu === "body" && (
+                    <div className="font-select-menu" role="listbox">
+                      {fontOptions.map((option) => (
+                        <button
+                          className={currentBodyFont.id === option.id ? "active" : ""}
+                          key={option.id}
+                          type="button"
+                          role="option"
+                          aria-selected={currentBodyFont.id === option.id}
+                          style={{ fontFamily: option.cssValue }}
+                          onClick={() => {
+                            changeBodyFont(option.id);
+                            setOpenFontMenu(null);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="appearance-row">
