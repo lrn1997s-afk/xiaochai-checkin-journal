@@ -250,8 +250,9 @@ const defaultGroups: Group[] = [
   { id: "personal", name: "我的小手帐", code: "MEONLY", isPersonal: true },
   { id: "group-friends", name: "健康搭子群", code: "FIT2026" },
   { id: "group-test-10", name: "十人测试群", code: "TEST10" },
+  { id: "group-lean-muscle", name: "薄肌俱乐部", code: "LEAN2026" },
 ];
-const defaultUserGroupIds = ["personal"];
+const defaultUserGroupIds = ["personal", "group-lean-muscle"];
 const currentGroupSetupVersion = 2;
 const legacyAutoJoinedGroupIds = ["personal", "group-friends"];
 const defaultWeeklyExerciseGoal = 2;
@@ -499,6 +500,12 @@ function formatDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function formatStatusBarTime(date: Date) {
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 function addDays(date: Date, amount: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
@@ -676,6 +683,7 @@ export default function Home() {
   const [adminTargetUserId, setAdminTargetUserId] = useState("u-momo");
   const [adminPointAmount, setAdminPointAmount] = useState(50);
   const [showAllMealHistory, setShowAllMealHistory] = useState(false);
+  const [statusBarTime, setStatusBarTime] = useState(() => formatStatusBarTime(new Date()));
   const [newGroupName, setNewGroupName] = useState("");
   const [joinGroupCode, setJoinGroupCode] = useState("");
   const [exercisePhotoPreview, setExercisePhotoPreview] = useState<ExercisePhotoPreview | null>(null);
@@ -791,6 +799,13 @@ export default function Home() {
         .map((entry) => ({ ownerId: user.id, ownerName: user.nickname, entry }))
     )),
   ].sort((left, right) => right.entry.date.localeCompare(left.entry.date));
+
+  useEffect(() => {
+    const updateTime = () => setStatusBarTime(formatStatusBarTime(new Date()));
+    updateTime();
+    const timer = window.setInterval(updateTime, 15000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1361,7 +1376,7 @@ export default function Home() {
       <audio ref={clickAudioRef} src="/checkin-assets/click.wav" preload="auto" />
       <section className="phone journal-phone" aria-label="小柴打卡手帐">
         <header className="status-bar" aria-label="手机状态">
-          <span>9:41</span>
+          <span>{statusBarTime}</span>
           <span aria-hidden="true">▮▮</span>
         </header>
         {state.onboarded && (
