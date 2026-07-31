@@ -11,11 +11,8 @@ type FontOptionId =
   | "enjoyable"
   | "influencer"
   | "clean"
-  | "seto"
-  | "lemi-bear"
   | "zcool-kuaile"
   | "lemi-crayon"
-  | "youzai"
   | "jiying-round"
   | "alibaba-light";
 type TextSize = "sm" | "md" | "lg";
@@ -266,14 +263,13 @@ const fontOptions: Array<{ id: FontOptionId; label: string; cssValue: string }> 
   { id: "enjoyable", label: "手写体·圆润", cssValue: 'var(--font-src-enjoyable), "PingFang SC", sans-serif' },
   { id: "influencer", label: "手写体·随性", cssValue: 'var(--font-src-influencer), "PingFang SC", sans-serif' },
   { id: "clean", label: "简约黑体", cssValue: '"PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif' },
-  { id: "seto", label: "濑户体", cssValue: 'var(--font-src-seto), "PingFang SC", sans-serif' },
-  { id: "lemi-bear", label: "小熊日记体", cssValue: 'var(--font-src-lemi-bear), "PingFang SC", sans-serif' },
-  { id: "zcool-kuaile", label: "站酷快乐体", cssValue: 'var(--font-src-zcool-kuaile), "PingFang SC", sans-serif' },
-  { id: "lemi-crayon", label: "乐米蜡笔体", cssValue: 'var(--font-src-lemi-crayon), "PingFang SC", sans-serif' },
-  { id: "youzai", label: "悠哉体", cssValue: 'var(--font-src-youzai), "PingFang SC", sans-serif' },
-  { id: "jiying-round", label: "毁片圆体", cssValue: 'var(--font-src-jiying-round), "PingFang SC", sans-serif' },
   { id: "alibaba-light", label: "阿里普惠体·细", cssValue: 'var(--font-src-alibaba-light), "PingFang SC", sans-serif' },
+  { id: "zcool-kuaile", label: "站酷快乐体·粗", cssValue: 'var(--font-src-zcool-kuaile), "PingFang SC", sans-serif' },
+  { id: "lemi-crayon", label: "乐米蜡笔体", cssValue: 'var(--font-src-lemi-crayon), "PingFang SC", sans-serif' },
+  { id: "jiying-round", label: "毁片圆体·粗", cssValue: 'var(--font-src-jiying-round), "PingFang SC", sans-serif' },
 ];
+
+const fontPreviewSample = "小柴打卡手帐";
 
 const textSizeOptions: Array<{ id: TextSize; label: string }> = [
   { id: "sm", label: "小" },
@@ -2279,10 +2275,10 @@ export default function Home() {
                   <button
                     className="font-select-trigger"
                     type="button"
-                    style={{ fontFamily: currentHeadingFont.cssValue }}
                     onClick={() => setOpenFontMenu(openFontMenu === "heading" ? null : "heading")}
                   >
-                    <span>{currentHeadingFont.label}</span>
+                    <small>{currentHeadingFont.label}</small>
+                    <span style={{ fontFamily: currentHeadingFont.cssValue }}>{fontPreviewSample}</span>
                     <em aria-hidden="true">{openFontMenu === "heading" ? "▲" : "▼"}</em>
                   </button>
                   {openFontMenu === "heading" && (
@@ -2294,13 +2290,13 @@ export default function Home() {
                           type="button"
                           role="option"
                           aria-selected={currentHeadingFont.id === option.id}
-                          style={{ fontFamily: option.cssValue }}
                           onClick={() => {
                             changeHeadingFont(option.id);
                             setOpenFontMenu(null);
                           }}
                         >
-                          {option.label}
+                          <small>{option.label}</small>
+                          <span style={{ fontFamily: option.cssValue }}>{fontPreviewSample}</span>
                         </button>
                       ))}
                     </div>
@@ -2313,10 +2309,10 @@ export default function Home() {
                   <button
                     className="font-select-trigger"
                     type="button"
-                    style={{ fontFamily: currentBodyFont.cssValue }}
                     onClick={() => setOpenFontMenu(openFontMenu === "body" ? null : "body")}
                   >
-                    <span>{currentBodyFont.label}</span>
+                    <small>{currentBodyFont.label}</small>
+                    <span style={{ fontFamily: currentBodyFont.cssValue }}>{fontPreviewSample}</span>
                     <em aria-hidden="true">{openFontMenu === "body" ? "▲" : "▼"}</em>
                   </button>
                   {openFontMenu === "body" && (
@@ -2328,13 +2324,13 @@ export default function Home() {
                           type="button"
                           role="option"
                           aria-selected={currentBodyFont.id === option.id}
-                          style={{ fontFamily: option.cssValue }}
                           onClick={() => {
                             changeBodyFont(option.id);
                             setOpenFontMenu(null);
                           }}
                         >
-                          {option.label}
+                          <small>{option.label}</small>
+                          <span style={{ fontFamily: option.cssValue }}>{fontPreviewSample}</span>
                         </button>
                       ))}
                     </div>
