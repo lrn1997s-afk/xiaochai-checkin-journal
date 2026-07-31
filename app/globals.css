@@ -4529,6 +4529,7 @@ h2,
 .admin-sheet,
 .history-sheet,
 .private-sheet,
+.appearance-sheet,
 .record-user-switch {
   position: relative;
   display: grid;
@@ -5375,4 +5376,63 @@ h2,
 
 .points-sheet > em {
   grid-column: 1 / -1;
+}
+
+/* ---- 外观设置：字体样式 + 字号 ---- */
+
+.appearance-row {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.appearance-row > small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.appearance-row .tag-grid.small {
+  grid-template-columns: 1fr;
+}
+
+.appearance-row .tag-grid.small button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.appearance-row .tag-grid.small button em {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.appearance-row .text-size-picker.tag-grid.small {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.appearance-row .text-size-picker.tag-grid.small button {
+  align-items: center;
+  text-align: center;
+}
+
+/* 字体：简约黑体——把手写体变量整体替换成系统无衬线字体，
+   这样其余引用 var(--font-enjoyable)/var(--font-influencer) 的地方会自动跟着变 */
+.app-canvas.font-clean {
+  --font-enjoyable: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-influencer: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* 字号：整体缩放手帐卡片内容，避免逐个改几千行的 font-size 数值 */
+.app-canvas.text-size-sm .phone {
+  zoom: 0.9;
+}
+
+.app-canvas.text-size-lg .phone {
+  zoom: 1.15;
 }

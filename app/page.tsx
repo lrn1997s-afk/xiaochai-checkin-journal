@@ -7,6 +7,8 @@ type ViewKey = "home" | "exercise" | "diet" | "records" | "rank" | "me" | "succe
 type Intensity = "轻松" | "正常" | "很累";
 type BackgroundTheme = "blue" | "green" | "peach";
 type Visibility = "public" | "private";
+type FontStyle = "handwriting" | "clean";
+type TextSize = "sm" | "md" | "lg";
 type PhotoStatus = "pending" | "approved" | "rejected";
 
 type Group = {
@@ -98,6 +100,8 @@ type AppState = {
   groups?: Group[];
   soundMuted?: boolean;
   users?: CommunityUser[];
+  fontStyle?: FontStyle;
+  textSize?: TextSize;
 };
 
 const mascotOptions = [
@@ -245,6 +249,17 @@ const backgroundOptions: Array<{ id: BackgroundTheme; label: string }> = [
   { id: "blue", label: "蓝格" },
   { id: "green", label: "绿格" },
   { id: "peach", label: "桃格" },
+];
+
+const fontStyleOptions: Array<{ id: FontStyle; label: string; desc: string }> = [
+  { id: "handwriting", label: "手写体", desc: "原本的手帐风格" },
+  { id: "clean", label: "简约黑体", desc: "更清晰易读" },
+];
+
+const textSizeOptions: Array<{ id: TextSize; label: string }> = [
+  { id: "sm", label: "小" },
+  { id: "md", label: "中" },
+  { id: "lg", label: "大" },
 ];
 
 const defaultGroups: Group[] = [
@@ -551,6 +566,8 @@ function createInitialState(): AppState {
     groups: defaultGroups,
     soundMuted: false,
     users: createCommunityUsers(today),
+    fontStyle: "handwriting",
+    textSize: "md",
   };
 }
 
@@ -704,6 +721,8 @@ export default function Home() {
   const dailyTitleLines = splitHeadline(dailyQuote.title);
   const dailyFoodAdvice = fitnessDietAdvice[getDailyAdviceIndex(todayKey)] ?? fitnessDietAdvice[0];
   const currentBackground = backgroundOptions.find((item) => item.id === state.backgroundTheme) ?? backgroundOptions[0];
+  const currentFontStyle = fontStyleOptions.find((item) => item.id === state.fontStyle) ?? fontStyleOptions[0];
+  const currentTextSize = textSizeOptions.find((item) => item.id === state.textSize) ?? textSizeOptions[1];
   const groups = mergeDefaultGroups(state.groups);
   const communityUsers = mergeCommunityUsers(state.users, new Date());
   const joinedGroupIds = normalizeUserGroupIds(state.groupIds)
@@ -861,6 +880,8 @@ export default function Home() {
           groupSetupVersion: currentGroupSetupVersion,
           groups: savedGroups,
           soundMuted: parsed.soundMuted ?? fallback.soundMuted,
+          fontStyle: fontStyleOptions.some((option) => option.id === parsed.fontStyle) ? parsed.fontStyle : fallback.fontStyle,
+          textSize: textSizeOptions.some((option) => option.id === parsed.textSize) ? parsed.textSize : fallback.textSize,
           users: mergeCommunityUsers(parsed.users, new Date()).map((user) => ({
             ...user,
             groupIds: user.groupIds?.length ? user.groupIds : ["group-friends"],
@@ -989,6 +1010,20 @@ export default function Home() {
     setState((current) => ({
       ...current,
       backgroundTheme: theme,
+    }));
+  }
+
+  function changeFontStyle(style: FontStyle) {
+    setState((current) => ({
+      ...current,
+      fontStyle: style,
+    }));
+  }
+
+  function changeTextSize(size: TextSize) {
+    setState((current) => ({
+      ...current,
+      textSize: size,
     }));
   }
 
@@ -1374,7 +1409,10 @@ export default function Home() {
   }
 
   return (
-    <main className={`app-canvas bg-${currentBackground.id}`} onClickCapture={handleAppClick}>
+    <main
+      className={`app-canvas bg-${currentBackground.id} font-${currentFontStyle.id} text-size-${currentTextSize.id}`}
+      onClickCapture={handleAppClick}
+    >
       <audio ref={bgmRef} src="/checkin-assets/bgm.wav" loop preload="auto" />
       <audio ref={clickAudioRef} src="/checkin-assets/click.wav" preload="auto" />
       <section className="phone journal-phone" aria-label="小柴打卡手帐">
@@ -2181,6 +2219,44 @@ export default function Home() {
                   />
                 </label>
                 <button className="group-pill-button" type="button" onClick={joinGroup}>加入</button>
+              </div>
+            </section>
+
+            <section className="appearance-sheet" aria-label="外观设置">
+              <div className="record-mini-heading">
+                <span>外观设置</span>
+                <strong>字体不习惯可以在这换</strong>
+              </div>
+              <div className="appearance-row">
+                <small>字体</small>
+                <div className="tag-grid small">
+                  {fontStyleOptions.map((option) => (
+                    <button
+                      className={currentFontStyle.id === option.id ? "active" : ""}
+                      key={option.id}
+                      type="button"
+                      onClick={() => changeFontStyle(option.id)}
+                    >
+                      {option.label}
+                      <em>{option.desc}</em>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="appearance-row">
+                <small>字号</small>
+                <div className="tag-grid small text-size-picker">
+                  {textSizeOptions.map((option) => (
+                    <button
+                      className={currentTextSize.id === option.id ? "active" : ""}
+                      key={option.id}
+                      type="button"
+                      onClick={() => changeTextSize(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </section>
 
