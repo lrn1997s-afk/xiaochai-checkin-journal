@@ -21,24 +21,6 @@ const zcoolKuaiLe = localFont({
   display: "swap",
 });
 
-const lemiCrayon = localFont({
-  src: "./fonts/lemi-crayon.woff2",
-  variable: "--font-src-lemi-crayon",
-  display: "swap",
-});
-
-const jiyingRound = localFont({
-  src: "./fonts/jiying-round.woff2",
-  variable: "--font-src-jiying-round",
-  display: "swap",
-});
-
-const alibabaPuHuiTiLight = localFont({
-  src: "./fonts/alibaba-puhuiti-light.woff2",
-  variable: "--font-src-alibaba-light",
-  display: "swap",
-});
-
 export async function generateMetadata(): Promise<Metadata> {
   const headersList = await headers();
   const host = headersList.get("x-forwarded-host") ?? headersList.get("host") ?? "localhost:3000";
@@ -74,7 +56,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body
-        className={`${enjoyable.variable} ${influencer.variable} ${zcoolKuaiLe.variable} ${lemiCrayon.variable} ${jiyingRound.variable} ${alibabaPuHuiTiLight.variable} antialiased`}
+        className={`${enjoyable.variable} ${influencer.variable} ${zcoolKuaiLe.variable} antialiased`}
       >
         {children}
       </body>
