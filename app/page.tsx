@@ -18,6 +18,16 @@ type Group = {
   isPersonal?: boolean;
 };
 
+type RemoteGroupMember = {
+  username: string;
+  isSelf: boolean;
+  nickname: string;
+  mascot: string;
+  points: number;
+  exerciseEntries: ExerciseEntry[];
+  weeklyExerciseGoal: number;
+};
+
 type ExerciseEntry = {
   date: string;
   tag: string;
@@ -297,6 +307,67 @@ function normalizeUserGroupIds(groupIds?: string[], options: { removeLegacyAutoJ
 function normalizeWeeklyGoal(goal?: number) {
   if (typeof goal !== "number" || !Number.isFinite(goal)) return defaultWeeklyExerciseGoal;
   return Math.min(Math.max(Math.round(goal), 1), 7);
+}
+
+function normalizeAppState(parsed: Partial<AppState>): AppState {
+  const fallback = createInitialState();
+  const normalizedMascot = parsed.mascot === "pink-godzilla" ? "ruanruan" : parsed.mascot;
+  const savedMascot = mascotOptions.some((option) => option.id === normalizedMascot) ? normalizedMascot : fallback.mascot;
+  const savedBackground = backgroundOptions.some((option) => option.id === parsed.backgroundTheme)
+    ? parsed.backgroundTheme
+    : fallback.backgroundTheme;
+  const savedGroups = mergeDefaultGroups(parsed.groups);
+  const savedGroupIds = normalizeUserGroupIds(parsed.groupIds, {
+    removeLegacyAutoJoin: (parsed.groupSetupVersion ?? 1) < currentGroupSetupVersion,
+  })
+    .filter((groupId) => (savedGroups ?? defaultGroups).some((group) => group.id === groupId));
+  const savedCurrentGroupId = savedGroupIds.includes(parsed.currentGroupId ?? "")
+    ? parsed.currentGroupId
+    : fallback.currentGroupId;
+  return {
+    onboarded: parsed.onboarded ?? Boolean(parsed.nickname),
+    userId: parsed.userId ?? fallback.userId,
+    isAdmin: parsed.isAdmin ?? false,
+    visibility: parsed.visibility ?? fallback.visibility,
+    mascot: savedMascot ?? fallback.mascot,
+    nickname: parsed.nickname ?? fallback.nickname,
+    points: parsed.isAdmin ? parsed.points ?? 999999 : parsed.points ?? fallback.points,
+    mascotClaimed: parsed.mascotClaimed ?? fallback.mascotClaimed,
+    exerciseEntries: normalizeExerciseEntries(parsed.exerciseEntries ?? fallback.exerciseEntries),
+    exercisePointDates: parsed.exercisePointDates ?? fallback.exercisePointDates,
+    mealRewardDates: parsed.mealRewardDates ?? fallback.mealRewardDates,
+    meals: normalizeMeals(parsed.meals),
+    exercisePhotos: parsed.exercisePhotos ?? fallback.exercisePhotos,
+    mealPhotos: parsed.mealPhotos ?? fallback.mealPhotos,
+    mealNotes: parsed.mealNotes ?? fallback.mealNotes,
+    mealHistory: parsed.mealHistory ?? fallback.mealHistory,
+    selectedPlate: parsed.selectedPlate ?? fallback.selectedPlate,
+    quoteDate: parsed.quoteDate ?? fallback.quoteDate,
+    quoteOffset: parsed.quoteOffset ?? fallback.quoteOffset,
+    backgroundTheme: savedBackground ?? fallback.backgroundTheme,
+    weeklyExerciseGoal: normalizeWeeklyGoal(parsed.weeklyExerciseGoal ?? fallback.weeklyExerciseGoal),
+    currentGroupId: savedCurrentGroupId ?? fallback.currentGroupId,
+    groupIds: savedGroupIds.length ? savedGroupIds : fallback.groupIds,
+    groupSetupVersion: currentGroupSetupVersion,
+    groups: savedGroups,
+    soundMuted: parsed.soundMuted ?? fallback.soundMuted,
+    headingFont: fontOptions.some((option) => option.id === parsed.headingFont)
+      ? parsed.headingFont
+      : (parsed as { fontStyle?: string }).fontStyle === "clean"
+        ? "clean"
+        : fallback.headingFont,
+    bodyFont: fontOptions.some((option) => option.id === parsed.bodyFont)
+      ? parsed.bodyFont
+      : (parsed as { fontStyle?: string }).fontStyle === "clean"
+        ? "clean"
+        : fallback.bodyFont,
+    textSize: textSizeOptions.some((option) => option.id === parsed.textSize) ? parsed.textSize : fallback.textSize,
+    users: mergeCommunityUsers(parsed.users, new Date()).map((user) => ({
+      ...user,
+      groupIds: user.groupIds?.length ? user.groupIds : ["group-friends"],
+      exerciseEntries: normalizeExerciseEntries(user.exerciseEntries),
+    })),
+  };
 }
 
 function createMealHistoryEntry(date: string, overrides: Partial<MealRecord>[] = []): MealHistoryEntry {
@@ -693,6 +764,15 @@ function getDietTip(meals: MealRecord[]) {
 export default function Home() {
   const [state, setState] = useState<AppState>(() => createInitialState());
   const [readyToSave, setReadyToSave] = useState(false);
+  const [authUsername, setAuthUsername] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authFormUsername, setAuthFormUsername] = useState("");
+  const [authFormPassword, setAuthFormPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const [remoteGroupMembers, setRemoteGroupMembers] = useState<RemoteGroupMember[] | null>(null);
   const [view, setView] = useState<ViewKey>("home");
   const [selectedExerciseTag, setSelectedExerciseTag] = useState("健身");
   const [selectedDuration, setSelectedDuration] = useState(30);
@@ -739,7 +819,21 @@ export default function Home() {
     .filter((groupId) => groups.some((group) => group.id === groupId));
   const joinedGroups = groups.filter((group) => joinedGroupIds.includes(group.id));
   const currentGroup = joinedGroups.find((group) => group.id === state.currentGroupId) ?? joinedGroups[0] ?? defaultGroups[0];
-  const groupUsers = communityUsers.filter((user) => (user.groupIds ?? ["group-friends"]).includes(currentGroup.id));
+  const realGroupUsers: CommunityUser[] | null = remoteGroupMembers
+    ? remoteGroupMembers
+        .filter((member) => !member.isSelf)
+        .map((member) => ({
+          id: member.username,
+          nickname: member.nickname,
+          mascot: (mascotOptions.find((option) => option.id === member.mascot) ?? mascotOptions[0]).image,
+          points: member.points,
+          visibility: "public" as Visibility,
+          groupIds: [currentGroup.id],
+          exerciseEntries: normalizeExerciseEntries(member.exerciseEntries),
+          mealHistory: {},
+        }))
+    : null;
+  const groupUsers = realGroupUsers ?? communityUsers.filter((user) => (user.groupIds ?? ["group-friends"]).includes(currentGroup.id));
   const soundMuted = state.soundMuted ?? false;
 
   const mascot = mascotOptions.find((item) => item.id === state.mascot) ?? mascotOptions[0];
@@ -849,64 +943,7 @@ export default function Home() {
 
       try {
         const parsed = JSON.parse(saved) as Partial<AppState>;
-        const fallback = createInitialState();
-        const normalizedMascot = parsed.mascot === "pink-godzilla" ? "ruanruan" : parsed.mascot;
-        const savedMascot = mascotOptions.some((option) => option.id === normalizedMascot) ? normalizedMascot : fallback.mascot;
-        const savedBackground = backgroundOptions.some((option) => option.id === parsed.backgroundTheme)
-          ? parsed.backgroundTheme
-          : fallback.backgroundTheme;
-        const savedGroups = mergeDefaultGroups(parsed.groups);
-        const savedGroupIds = normalizeUserGroupIds(parsed.groupIds, {
-          removeLegacyAutoJoin: (parsed.groupSetupVersion ?? 1) < currentGroupSetupVersion,
-        })
-          .filter((groupId) => (savedGroups ?? defaultGroups).some((group) => group.id === groupId));
-        const savedCurrentGroupId = savedGroupIds.includes(parsed.currentGroupId ?? "")
-          ? parsed.currentGroupId
-          : fallback.currentGroupId;
-        setState({
-          onboarded: parsed.onboarded ?? Boolean(parsed.nickname),
-          userId: parsed.userId ?? fallback.userId,
-          isAdmin: parsed.isAdmin ?? false,
-          visibility: parsed.visibility ?? fallback.visibility,
-          mascot: savedMascot ?? fallback.mascot,
-          nickname: parsed.nickname ?? fallback.nickname,
-          points: parsed.isAdmin ? parsed.points ?? 999999 : parsed.points ?? fallback.points,
-          mascotClaimed: parsed.mascotClaimed ?? fallback.mascotClaimed,
-          exerciseEntries: normalizeExerciseEntries(parsed.exerciseEntries ?? fallback.exerciseEntries),
-          exercisePointDates: parsed.exercisePointDates ?? fallback.exercisePointDates,
-          mealRewardDates: parsed.mealRewardDates ?? fallback.mealRewardDates,
-          meals: normalizeMeals(parsed.meals),
-          exercisePhotos: parsed.exercisePhotos ?? fallback.exercisePhotos,
-          mealPhotos: parsed.mealPhotos ?? fallback.mealPhotos,
-          mealNotes: parsed.mealNotes ?? fallback.mealNotes,
-          mealHistory: parsed.mealHistory ?? fallback.mealHistory,
-          selectedPlate: parsed.selectedPlate ?? fallback.selectedPlate,
-          quoteDate: parsed.quoteDate ?? fallback.quoteDate,
-          quoteOffset: parsed.quoteOffset ?? fallback.quoteOffset,
-          backgroundTheme: savedBackground ?? fallback.backgroundTheme,
-          weeklyExerciseGoal: normalizeWeeklyGoal(parsed.weeklyExerciseGoal ?? fallback.weeklyExerciseGoal),
-          currentGroupId: savedCurrentGroupId ?? fallback.currentGroupId,
-          groupIds: savedGroupIds.length ? savedGroupIds : fallback.groupIds,
-          groupSetupVersion: currentGroupSetupVersion,
-          groups: savedGroups,
-          soundMuted: parsed.soundMuted ?? fallback.soundMuted,
-          headingFont: fontOptions.some((option) => option.id === parsed.headingFont)
-            ? parsed.headingFont
-            : (parsed as { fontStyle?: string }).fontStyle === "clean"
-              ? "clean"
-              : fallback.headingFont,
-          bodyFont: fontOptions.some((option) => option.id === parsed.bodyFont)
-            ? parsed.bodyFont
-            : (parsed as { fontStyle?: string }).fontStyle === "clean"
-              ? "clean"
-              : fallback.bodyFont,
-          textSize: textSizeOptions.some((option) => option.id === parsed.textSize) ? parsed.textSize : fallback.textSize,
-          users: mergeCommunityUsers(parsed.users, new Date()).map((user) => ({
-            ...user,
-            groupIds: user.groupIds?.length ? user.groupIds : ["group-friends"],
-            exerciseEntries: normalizeExerciseEntries(user.exerciseEntries),
-          })),
-        });
+        setState(normalizeAppState(parsed));
       } catch {
         setState(createInitialState());
       } finally {
@@ -916,6 +953,114 @@ export default function Home() {
 
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        const data = (await res.json()) as { user: { username: string } | null };
+        if (cancelled) return;
+        if (data.user) {
+          setAuthUsername(data.user.username);
+          await syncFromServerAfterAuth();
+        }
+      } catch {
+        // 没配置数据库连接串时这里会请求失败，安静地退回到只用本地存储的模式
+      } finally {
+        if (!cancelled) setAuthChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function syncFromServerAfterAuth() {
+    try {
+      const res = await fetch("/api/state");
+      if (!res.ok) return;
+      const data = (await res.json()) as { state: Partial<AppState> | null };
+      if (data.state) {
+        setState(normalizeAppState(data.state));
+      } else {
+        await fetch("/api/state", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state }),
+        });
+      }
+      setSyncStatus("synced");
+    } catch {
+      setSyncStatus("error");
+    }
+  }
+
+  async function handleAuthSubmit() {
+    const username = authFormUsername.trim();
+    const password = authFormPassword;
+    if (!username || !password) {
+      setAuthError("用户名和密码都要填");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      const res = await fetch(`/api/auth/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.error ?? "出错了，再试一次");
+        return;
+      }
+      setAuthUsername(data.username);
+      setAuthFormPassword("");
+      await syncFromServerAfterAuth();
+    } catch {
+      setAuthError("网络请求失败，稍后再试");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // 忽略网络错误，无论如何都清掉本地的登录状态
+    }
+    setAuthUsername(null);
+    setSyncStatus("idle");
+    setRemoteGroupMembers(null);
+  }
+
+  useEffect(() => {
+    if (!authUsername || currentGroup.id === "personal") {
+      setRemoteGroupMembers(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/group/${encodeURIComponent(currentGroup.id)}`);
+        if (!res.ok) {
+          if (!cancelled) setRemoteGroupMembers(null);
+          return;
+        }
+        const data = (await res.json()) as { members: RemoteGroupMember[] };
+        if (!cancelled) setRemoteGroupMembers(data.members);
+      } catch {
+        if (!cancelled) setRemoteGroupMembers(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUsername, currentGroup.id]);
 
   useEffect(() => {
     if (!readyToSave) return;
@@ -1444,7 +1589,7 @@ export default function Home() {
       } as CSSProperties}
       onClickCapture={handleAppClick}
     >
-      <audio ref={bgmRef} src="/checkin-assets/bgm.wav" loop preload="auto" />
+      <audio ref={bgmRef} src="/checkin-assets/bgm.mp3" loop preload="auto" />
       <audio ref={clickAudioRef} src="/checkin-assets/click.wav" preload="auto" />
       <section className="phone journal-phone" aria-label="小柴打卡手帐">
         <header className="status-bar" aria-label="手机状态">
@@ -2251,6 +2396,74 @@ export default function Home() {
                 </label>
                 <button className="group-pill-button" type="button" onClick={joinGroup}>加入</button>
               </div>
+            </section>
+
+            <section className="appearance-sheet" aria-label="账号">
+              <div className="settings-block-heading">
+                <h2>账号</h2>
+                <p>注册一个账号，数据就能存到服务器上，换设备也能接着用。</p>
+              </div>
+              {!authChecked ? (
+                <p className="screen-note">正在检查登录状态…</p>
+              ) : authUsername ? (
+                <div className="appearance-row">
+                  <small>当前账号</small>
+                  <div className="font-toggle" style={{ gridTemplateColumns: "1fr auto" }}>
+                    <button type="button" style={{ cursor: "default" }}>
+                      {authUsername}
+                    </button>
+                    <button type="button" onClick={handleLogout}>
+                      退出登录
+                    </button>
+                  </div>
+                  <small>
+                    {syncStatus === "syncing" && "正在同步…"}
+                    {syncStatus === "synced" && "已同步到服务器"}
+                    {syncStatus === "error" && "同步失败，稍后会自动重试"}
+                  </small>
+                </div>
+              ) : (
+                <div className="appearance-row">
+                  <div className="font-toggle">
+                    <button
+                      className={authMode === "login" ? "active" : ""}
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("login");
+                        setAuthError("");
+                      }}
+                    >
+                      登录
+                    </button>
+                    <button
+                      className={authMode === "register" ? "active" : ""}
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("register");
+                        setAuthError("");
+                      }}
+                    >
+                      注册新账号
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="用户名（3-20位字母数字下划线）"
+                    value={authFormUsername}
+                    onChange={(event) => setAuthFormUsername(event.target.value)}
+                  />
+                  <input
+                    type="password"
+                    placeholder="密码（至少6位）"
+                    value={authFormPassword}
+                    onChange={(event) => setAuthFormPassword(event.target.value)}
+                  />
+                  {authError && <small style={{ color: "#c0554a" }}>{authError}</small>}
+                  <button className="primary-sticker" type="button" disabled={authBusy} onClick={handleAuthSubmit}>
+                    {authBusy ? "处理中…" : authMode === "login" ? "登录" : "注册"}
+                  </button>
+                </div>
+              )}
             </section>
 
             <section className="appearance-sheet" aria-label="外观设置">
