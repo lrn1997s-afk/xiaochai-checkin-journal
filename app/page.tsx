@@ -793,6 +793,12 @@ export default function Home() {
   const [selectedRecordUserId, setSelectedRecordUserId] = useState("me");
   const [adminTargetUserId, setAdminTargetUserId] = useState("u-momo");
   const [adminPointAmount, setAdminPointAmount] = useState(50);
+  const [backfillUsername, setBackfillUsername] = useState("");
+  const [backfillDate, setBackfillDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [backfillTag, setBackfillTag] = useState("健身");
+  const [backfillDuration, setBackfillDuration] = useState(30);
+  const [backfillIntensity, setBackfillIntensity] = useState<Intensity>("正常");
+  const [backfillFeedback, setBackfillFeedback] = useState("");
   const [showAllMealHistory, setShowAllMealHistory] = useState(false);
   const [statusBarTime, setStatusBarTime] = useState(() => formatStatusBarTime(new Date()));
   const [newGroupName, setNewGroupName] = useState("");
@@ -920,11 +926,11 @@ export default function Home() {
   const exercisePhotoReviews = [
     ...state.exerciseEntries
       .filter((entry) => entry.photo)
-      .map((entry) => ({ ownerId: "me", ownerName: userNickname, entry })),
-    ...communityUsers.flatMap((user) => (
+      .map((entry) => ({ ownerId: "me", ownerUsername: authUsername ?? "", ownerName: userNickname, entry })),
+    ...groupUsers.flatMap((user) => (
       user.exerciseEntries
         .filter((entry) => entry.photo)
-        .map((entry) => ({ ownerId: user.id, ownerName: user.nickname, entry }))
+        .map((entry) => ({ ownerId: user.id, ownerUsername: realGroupUsers ? user.id : "", ownerName: user.nickname, entry }))
     )),
   ].sort((left, right) => right.entry.date.localeCompare(left.entry.date));
 
@@ -1539,8 +1545,42 @@ export default function Home() {
     });
   }
 
-  function reviewExercisePhoto(ownerId: string, date: string, status: PhotoStatus) {
+  async function reviewExercisePhoto(ownerId: string, date: string, status: PhotoStatus) {
     if (!state.isAdmin) return;
+
+    if (ownerId !== "me" && realGroupUsers) {
+      try {
+        const res = await fetch("/api/admin/exercise", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetUsername: ownerId, action: "review", date, status }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setSettingsFeedback(data.error ?? "审核失败，再试一次。");
+          return;
+        }
+        setSettingsFeedback("审核结果已保存。");
+        setRemoteGroupMembers((current) =>
+          current
+            ? current.map((member) =>
+                member.username === ownerId
+                  ? {
+                      ...member,
+                      exerciseEntries: member.exerciseEntries.map((entry) =>
+                        entry.date === date ? { ...entry, photoStatus: status } : entry
+                      ),
+                    }
+                  : member
+              )
+            : current
+        );
+      } catch {
+        setSettingsFeedback("网络请求失败，稍后再试。");
+      }
+      return;
+    }
+
     setState((current) => {
       if (ownerId === "me") {
         const wasRewarded = (current.exercisePointDates ?? []).includes(date);
@@ -1586,6 +1626,52 @@ export default function Home() {
       };
     });
     setSettingsFeedback(status === "rejected" ? "已否认这张打卡照片，并扣回对应运动积分。" : "已通过这张打卡照片。");
+  }
+
+  async function submitBackfillExercise() {
+    if (!state.isAdmin) return;
+    if (!backfillUsername) {
+      setBackfillFeedback("先选一个要补卡的人。");
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/exercise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetUsername: backfillUsername,
+          action: "backfill",
+          date: backfillDate,
+          tag: backfillTag,
+          duration: backfillDuration,
+          intensity: backfillIntensity,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBackfillFeedback(data.error ?? "补卡失败，再试一次。");
+        return;
+      }
+      setBackfillFeedback("补卡成功。");
+      setRemoteGroupMembers((current) =>
+        current
+          ? current.map((member) =>
+              member.username === backfillUsername
+                ? {
+                    ...member,
+                    points: member.points + 10,
+                    exerciseEntries: [
+                      ...member.exerciseEntries.filter((entry) => entry.date !== backfillDate),
+                      { date: backfillDate, tag: backfillTag, duration: backfillDuration, intensity: backfillIntensity, photoStatus: "approved" },
+                    ],
+                  }
+                : member
+            )
+          : current
+      );
+    } catch {
+      setBackfillFeedback("网络请求失败，稍后再试。");
+    }
   }
 
   return (
@@ -2620,6 +2706,52 @@ export default function Home() {
                 <div className="admin-actions">
                   <button type="button" onClick={() => adjustUserPoints(1)}>加积分</button>
                   <button type="button" onClick={() => adjustUserPoints(-1)}>减积分</button>
+                </div>
+                <div className="admin-photo-review">
+                  <div className="record-mini-heading">
+                    <span>帮人补卡</span>
+                  </div>
+                  {realGroupUsers && realGroupUsers.length > 0 ? (
+                    <>
+                      <label>
+                        <small>选择成员</small>
+                        <select value={backfillUsername} onChange={(event) => setBackfillUsername(event.target.value)}>
+                          <option value="">请选择</option>
+                          {realGroupUsers.map((user) => (
+                            <option key={user.id} value={user.id}>{user.nickname}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <small>日期</small>
+                        <input type="date" value={backfillDate} onChange={(event) => setBackfillDate(event.target.value)} />
+                      </label>
+                      <label>
+                        <small>运动类型</small>
+                        <select value={backfillTag} onChange={(event) => setBackfillTag(event.target.value)}>
+                          {exerciseTags.map((tag) => (
+                            <option key={tag} value={tag}>{tag}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <small>时长（分钟）</small>
+                        <input
+                          type="number"
+                          min={1}
+                          max={600}
+                          value={backfillDuration}
+                          onChange={(event) => setBackfillDuration(Number(event.target.value))}
+                        />
+                      </label>
+                      <div className="admin-actions">
+                        <button type="button" onClick={submitBackfillExercise}>确认补卡</button>
+                      </div>
+                      {backfillFeedback && <p className="settings-feedback">{backfillFeedback}</p>}
+                    </>
+                  ) : (
+                    <p>当前群组还没有拉取到真实成员，先去"记录"或"排行"页面加载一下群组数据。</p>
+                  )}
                 </div>
                 <div className="admin-photo-review">
                   <div className="record-mini-heading">
