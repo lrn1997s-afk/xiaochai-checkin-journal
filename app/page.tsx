@@ -769,12 +769,14 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authFormUsername, setAuthFormUsername] = useState("");
   const [authFormPassword, setAuthFormPassword] = useState("");
+  const [adminUpgradeInput, setAdminUpgradeInput] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [remoteGroupMembers, setRemoteGroupMembers] = useState<RemoteGroupMember[] | null>(null);
   const [view, setView] = useState<ViewKey>("home");
   const [selectedExerciseTag, setSelectedExerciseTag] = useState("健身");
+  const [customExerciseInput, setCustomExerciseInput] = useState("");
   const [selectedDuration, setSelectedDuration] = useState(30);
   const [showCustomDuration, setShowCustomDuration] = useState(false);
   const [customDurationInput, setCustomDurationInput] = useState("");
@@ -1289,6 +1291,10 @@ export default function Home() {
   }
 
   function saveExercise(photo?: string) {
+    const finalExerciseTag =
+      selectedExerciseTag === "自定义" && customExerciseInput.trim()
+        ? customExerciseInput.trim().slice(0, 8)
+        : selectedExerciseTag;
     const alreadyRewardedToday = (state.exercisePointDates ?? []).includes(todayKey);
     setState((current) => ({
       ...current,
@@ -1302,7 +1308,7 @@ export default function Home() {
         ...current.exerciseEntries.filter((entry) => entry.date !== todayKey),
         {
           date: todayKey,
-          tag: selectedExerciseTag,
+          tag: finalExerciseTag,
           duration: selectedDuration,
           intensity: selectedIntensity,
           photo,
@@ -1317,12 +1323,15 @@ export default function Home() {
         : current.exercisePhotos,
     }));
     showSuccess(
-      `今天完成 ${selectedExerciseTag} ${selectedDuration} 分钟，${alreadyRewardedToday ? "今日积分已领取" : `获得 ${exercisePointReward} 积分`}，本周运动 ${Math.min(weekEntries.length + 1, weeklyExerciseGoal)}/${weeklyExerciseGoal}。`,
+      `今天完成 ${finalExerciseTag} ${selectedDuration} 分钟，${alreadyRewardedToday ? "今日积分已领取" : `获得 ${exercisePointReward} 积分`}，本周运动 ${Math.min(weekEntries.length + 1, weeklyExerciseGoal)}/${weeklyExerciseGoal}。`,
     );
   }
 
   async function handleExercisePhoto(file: File | undefined) {
-    if (!file) return;
+    if (!file) {
+      setSettingsFeedback("没有识别到照片，请重新拍一张再试试。");
+      return;
+    }
     try {
       const photo = await compressPhotoFile(file, 900, 0.72);
       saveExercise(photo);
@@ -1592,6 +1601,17 @@ export default function Home() {
       <audio ref={bgmRef} src="/checkin-assets/bgm.mp3" loop preload="auto" />
       <audio ref={clickAudioRef} src="/checkin-assets/click.wav" preload="auto" />
       <section className="phone journal-phone" aria-label="小柴打卡手帐">
+        {!readyToSave && (
+          <div className="app-loading-screen" role="status" aria-label="加载中">
+            <Image src="/checkin-assets/main-shiba-v2.png" width={140} height={140} alt="" unoptimized />
+            <strong>小柴打卡手帐</strong>
+            <div className="app-loading-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+        )}
         <header className="status-bar" aria-label="手机状态">
           <span>{statusBarTime}</span>
           <span aria-hidden="true">▮▮</span>
@@ -1780,6 +1800,17 @@ export default function Home() {
                   </button>
                 ))}
               </div>
+              {selectedExerciseTag === "自定义" && (
+                <div className="custom-duration-input">
+                  <input
+                    type="text"
+                    maxLength={8}
+                    placeholder="输入运动名称，比如骑行、拳击"
+                    value={customExerciseInput}
+                    onChange={(event) => setCustomExerciseInput(event.target.value)}
+                  />
+                </div>
+              )}
             </section>
 
             <section className="choice-sheet two-column" aria-label="选择时长和强度">
@@ -1868,6 +1899,7 @@ export default function Home() {
                 onChange={(event) => handleExercisePhoto(event.target.files?.[0])}
               />
             </div>
+            {settingsFeedback && <p className="settings-feedback">{settingsFeedback}</p>}
 
             <section className="leave-sheet" aria-label="身体状态请假">
               <h2>今天需要休息？</h2>
@@ -2069,6 +2101,20 @@ export default function Home() {
         {state.onboarded && view === "records" && (
           <section className="screen records-screen">
             <div className="center-title">健康记录</div>
+            {joinedGroups.length > 1 && (
+              <div className="group-switcher records-group-switcher">
+                {joinedGroups.map((group) => (
+                  <button
+                    className={currentGroup.id === group.id ? "active" : ""}
+                    key={group.id}
+                    type="button"
+                    onClick={() => switchGroup(group.id)}
+                  >
+                    {group.name}
+                  </button>
+                ))}
+              </div>
+            )}
             <section className="records-hero-card" aria-label="打开健康记录">
               <div>
                 <span>打开记录</span>
@@ -2421,6 +2467,32 @@ export default function Home() {
                     {syncStatus === "synced" && "已同步到服务器"}
                     {syncStatus === "error" && "同步失败，稍后会自动重试"}
                   </small>
+                  {!state.isAdmin && (
+                    <>
+                      <small>管理员权限</small>
+                      <input
+                        type="password"
+                        placeholder="输入管理员密码可升级当前账号"
+                        value={adminUpgradeInput}
+                        onChange={(event) => setAdminUpgradeInput(event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (adminUpgradeInput === adminAccount.password) {
+                            setState((current) => ({ ...current, isAdmin: true, points: 999999 }));
+                            setAdminUpgradeInput("");
+                            setSettingsFeedback("已升级为管理员。");
+                          } else {
+                            setSettingsFeedback("管理员密码不对。");
+                          }
+                        }}
+                      >
+                        升级为管理员
+                      </button>
+                    </>
+                  )}
+                  {state.isAdmin && <small>当前账号已是管理员</small>}
                 </div>
               ) : (
                 <div className="appearance-row">
