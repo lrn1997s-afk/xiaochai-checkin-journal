@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 type ViewKey = "home" | "exercise" | "diet" | "records" | "rank" | "me" | "success";
 type Intensity = "轻松" | "正常" | "很累";
@@ -794,24 +794,21 @@ export default function Home() {
   const [adminTargetUserId, setAdminTargetUserId] = useState("u-momo");
   const [adminPointAmount, setAdminPointAmount] = useState(50);
   const [backfillUsername, setBackfillUsername] = useState("");
-  const [backfillDate, setBackfillDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [backfillDate, setBackfillDate] = useState("");
   const [backfillTag, setBackfillTag] = useState("健身");
   const [backfillDuration, setBackfillDuration] = useState(30);
   const [backfillIntensity, setBackfillIntensity] = useState<Intensity>("正常");
   const [backfillFeedback, setBackfillFeedback] = useState("");
   const [showAllMealHistory, setShowAllMealHistory] = useState(false);
-  const [statusBarTime, setStatusBarTime] = useState(() => formatStatusBarTime(new Date()));
+  const [statusBarTime, setStatusBarTime] = useState("--:--");
   const [newGroupName, setNewGroupName] = useState("");
   const [joinGroupCode, setJoinGroupCode] = useState("");
   const [exercisePhotoPreview, setExercisePhotoPreview] = useState<ExercisePhotoPreview | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const clickAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const todayKey = useMemo(() => formatDateKey(new Date()), []);
-  const todayLabel = useMemo(() => {
-    const date = new Date();
-    return `${date.getMonth() + 1}月${date.getDate()}日`;
-  }, []);
+  const [todayKey, setTodayKey] = useState("");
+  const [todayLabel, setTodayLabel] = useState("");
   const quoteOffset = state.quoteDate === todayKey ? state.quoteOffset ?? 0 : 0;
   const quoteIndex = (getDailyQuoteIndex(todayKey) + quoteOffset) % dailyQuotes.length;
   const dailyQuote = dailyQuotes[quoteIndex];
@@ -939,6 +936,16 @@ export default function Home() {
     updateTime();
     const timer = window.setInterval(updateTime, 15000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const now = new Date();
+    setTodayKey(formatDateKey(now));
+    setTodayLabel(`${now.getMonth() + 1}月${now.getDate()}日`);
+  }, []);
+
+  useEffect(() => {
+    setBackfillDate(new Date().toISOString().slice(0, 10));
   }, []);
 
   useEffect(() => {
