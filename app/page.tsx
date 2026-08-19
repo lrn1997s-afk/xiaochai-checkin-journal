@@ -819,7 +819,7 @@ export default function Home() {
   const currentBodyFont = fontOptions.find((item) => item.id === state.bodyFont) ?? fontOptions[1];
   const currentTextSize = textSizeOptions.find((item) => item.id === state.textSize) ?? textSizeOptions[1];
   const groups = mergeDefaultGroups(state.groups);
-  const communityUsers = mergeCommunityUsers(state.users, new Date());
+  const communityUsers = mergeCommunityUsers(state.users, new Date(`${todayKey || "2020-01-01"}T00:00:00`));
   const joinedGroupIds = normalizeUserGroupIds(state.groupIds)
     .filter((groupId) => groups.some((group) => group.id === groupId));
   const joinedGroups = groups.filter((group) => joinedGroupIds.includes(group.id));
