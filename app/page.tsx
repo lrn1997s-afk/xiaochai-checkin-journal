@@ -977,13 +977,16 @@ export default function Home() {
         const data = (await res.json()) as { user: { username: string } | null };
         if (cancelled) return;
         if (data.user) {
-          // 只标记登录状态，不在这里从服务器拉数据覆盖本地——
-          // 这台设备本地存的数据就是"最新的那份"（比如刚打完卡就刷新页面，
-          // 服务器那次同步可能还没落地），刷新页面应该信任本地、把本地推上去，
-          // 而不是反过来被服务器上可能还没更新的旧数据覆盖掉。
-          // 真正需要"从服务器拉数据"的时机，只有在下面 handleAuthSubmit 里
-          // 用户主动登录/注册的那一刻（比如换了新设备）。
           setAuthUsername(data.user.username);
+          // 只有这台设备本地从来没存过数据的时候（比如换了设备、清过浏览器缓存，
+          // 但登录状态的 cookie 还留着），才需要从服务器拉一次数据——
+          // 这种情况下本地反正是空的，拉服务器数据不会覆盖丢失任何东西。
+          // 如果本地已经有数据了，就不在这里拉取，避免覆盖掉本地可能更新的内容
+          // （比如刚打完卡就刷新页面，服务器那次同步可能还没落地）。
+          const hasLocalData = Boolean(window.localStorage.getItem("cozy-health-state-v2"));
+          if (!hasLocalData) {
+            await syncFromServerAfterAuth();
+          }
         }
       } catch {
         // 没配置数据库连接串时这里会请求失败，安静地退回到只用本地存储的模式
@@ -2781,7 +2784,7 @@ export default function Home() {
                       {backfillFeedback && <p className="settings-feedback">{backfillFeedback}</p>}
                     </>
                   ) : (
-                    <p>当前群组还没有拉取到真实成员，先去"记录"或"排行"页面加载一下群组数据。</p>
+                    <p>当前所在群组是"个人手帐"，没有真实成员——去"记录"页面顶部把群组切换到有其他成员的那个群，再回来看看。</p>
                   )}
                 </div>
                 <div className="admin-photo-review">
