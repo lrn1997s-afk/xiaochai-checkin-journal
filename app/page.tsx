@@ -970,8 +970,13 @@ export default function Home() {
         const data = (await res.json()) as { user: { username: string } | null };
         if (cancelled) return;
         if (data.user) {
+          // 只标记登录状态，不在这里从服务器拉数据覆盖本地——
+          // 这台设备本地存的数据就是"最新的那份"（比如刚打完卡就刷新页面，
+          // 服务器那次同步可能还没落地），刷新页面应该信任本地、把本地推上去，
+          // 而不是反过来被服务器上可能还没更新的旧数据覆盖掉。
+          // 真正需要"从服务器拉数据"的时机，只有在下面 handleAuthSubmit 里
+          // 用户主动登录/注册的那一刻（比如换了新设备）。
           setAuthUsername(data.user.username);
-          await syncFromServerAfterAuth();
         }
       } catch {
         // 没配置数据库连接串时这里会请求失败，安静地退回到只用本地存储的模式
@@ -1045,6 +1050,25 @@ export default function Home() {
     setSyncStatus("idle");
     setRemoteGroupMembers(null);
   }
+
+  useEffect(() => {
+    if (!readyToSave || !authChecked || !authUsername) return;
+    setSyncStatus("syncing");
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/state", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state }),
+        });
+        setSyncStatus(res.ok ? "synced" : "error");
+      } catch {
+        setSyncStatus("error");
+      }
+    }, 800);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readyToSave, authChecked, authUsername, state]);
 
   useEffect(() => {
     if (!authUsername || currentGroup.id === "personal") {
