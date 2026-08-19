@@ -774,6 +774,7 @@ export default function Home() {
   const [authBusy, setAuthBusy] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [remoteGroupMembers, setRemoteGroupMembers] = useState<RemoteGroupMember[] | null>(null);
+  const [groupBadges, setGroupBadges] = useState<Record<string, number>>({});
   const [view, setView] = useState<ViewKey>("home");
   const [selectedExerciseTag, setSelectedExerciseTag] = useState("健身");
   const [customExerciseInput, setCustomExerciseInput] = useState("");
@@ -883,24 +884,26 @@ export default function Home() {
     selectedMeal.fruitTea ? { field: "fruitTea", label: selectedMealNotes.fruitTea || "果茶" } : null,
   ].filter(Boolean) as Array<{ field: "milkTea" | "fruitTea"; label: string }>;
   const rankedUsers = [
-    { id: "me", name: userNickname, count: weekEntries.length, image: displayMascot.image },
+    { id: "me", name: userNickname, count: weekEntries.length, image: displayMascot.image, badgeCount: groupBadges[authUsername ?? ""] ?? 0 },
     ...groupUsers.map((user) => ({
       id: user.id,
       name: user.nickname,
       count: getWeekEntries(user.exerciseEntries).length,
       image: user.mascot,
+      badgeCount: groupBadges[user.id] ?? 0,
     })),
   ].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name, "zh-CN"));
   const podiumUsers = [
     rankedUsers[1] ? { ...rankedUsers[1], rank: 2, className: "second" } : null,
     rankedUsers[0] ? { ...rankedUsers[0], rank: 1, className: "first" } : null,
     rankedUsers[2] ? { ...rankedUsers[2], rank: 3, className: "third" } : null,
-  ].filter(Boolean) as Array<{ rank: number; name: string; count: number; image: string; className: string }>;
+  ].filter(Boolean) as Array<{ rank: number; name: string; count: number; image: string; className: string; badgeCount: number }>;
   const isSinglePodium = podiumUsers.length === 1;
   const rankRows = rankedUsers.map((user, index) => ({
     rank: index + 1,
     name: user.name,
     value: `本周运动 ${user.count} 次`,
+    badgeCount: user.badgeCount,
   }));
   const recordUsers = [
     {
@@ -1097,6 +1100,30 @@ export default function Home() {
         if (!cancelled) setRemoteGroupMembers(data.members);
       } catch {
         if (!cancelled) setRemoteGroupMembers(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUsername, currentGroup.id]);
+
+  useEffect(() => {
+    if (!authUsername || currentGroup.id === "personal") {
+      setGroupBadges({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/group/${encodeURIComponent(currentGroup.id)}/champions`);
+        if (!res.ok) {
+          if (!cancelled) setGroupBadges({});
+          return;
+        }
+        const data = (await res.json()) as { badges: Record<string, number> };
+        if (!cancelled) setGroupBadges(data.badges ?? {});
+      } catch {
+        if (!cancelled) setGroupBadges({});
       }
     })();
     return () => {
@@ -2427,17 +2454,23 @@ export default function Home() {
                     <span className="podium-avatar-frame">
                       <Image src={user.image} width={1000} height={1000} alt="" unoptimized />
                     </span>
-                    <strong>{user.name}</strong>
+                    <strong>
+                      {user.name}
+                      {user.badgeCount > 0 && <span className="champion-badge">🏆{user.badgeCount}</span>}
+                    </strong>
                     <em>{user.count} 次</em>
                   </div>
                 ))}
               </div>
             </section>
             <section className="rank-list" aria-label="运动排行榜">
-              {rankRows.map(({ rank, name, value }) => (
+              {rankRows.map(({ rank, name, value, badgeCount }) => (
                 <article key={rank}>
                   <mark>{rank}</mark>
-                  <span>{name}</span>
+                  <span>
+                    {name}
+                    {badgeCount > 0 && <span className="champion-badge">🏆{badgeCount}</span>}
+                  </span>
                   <strong>{value}</strong>
                 </article>
               ))}
