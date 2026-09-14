@@ -115,6 +115,79 @@ type AppState = {
   textSize?: TextSize;
 };
 
+// 一份状态里有没有真正的打卡数据。用来判断"本地是不是空的"，
+// 避免拿空白状态去覆盖服务器上真实的记录。
+function hasRealData(state: Partial<AppState> | null | undefined): boolean {
+  if (!state) return false;
+  if ((state.exerciseEntries?.length ?? 0) > 0) return true;
+  if (Object.keys(state.mealHistory ?? {}).length > 0) return true;
+  return false;
+}
+
+function unionDates(left: string[] | undefined, right: string[] | undefined) {
+  return Array.from(new Set([...(left ?? []), ...(right ?? [])])).sort();
+}
+
+// 把同一条运动记录认出来：同一天、同一项目、同样时长和强度，就算同一条。
+function exerciseEntryKey(entry: ExerciseEntry) {
+  return `${entry.date}|${entry.tag}|${entry.duration}|${entry.intensity}`;
+}
+
+// 合并两份状态，而不是让其中一份直接覆盖另一份。
+// 打卡记录取并集（两边都有就保留信息更全的那条），偏好设置以本地这台设备为准。
+function mergeAppState(local: AppState, remote: AppState): AppState {
+  // 本地没有任何真实数据时（比如刚清过缓存、或者 localStorage 解析失败退回了初始状态），
+  // 直接采用服务器版本，一个字段都不要拿本地的去盖。
+  if (!hasRealData(local)) return remote;
+  if (!hasRealData(remote)) return local;
+
+  const entryMap = new Map<string, ExerciseEntry>();
+  const absorb = (entry: ExerciseEntry) => {
+    const key = exerciseEntryKey(entry);
+    const previous = entryMap.get(key);
+    if (!previous) {
+      entryMap.set(key, entry);
+      return;
+    }
+    entryMap.set(key, {
+      ...previous,
+      ...entry,
+      photo: entry.photo ?? previous.photo,
+      photoStatus: entry.photoStatus ?? previous.photoStatus,
+      leaveReason: entry.leaveReason ?? previous.leaveReason,
+    });
+  };
+  remote.exerciseEntries.forEach(absorb);
+  local.exerciseEntries.forEach(absorb);
+  const exerciseEntries = Array.from(entryMap.values()).sort((left, right) =>
+    left.date.localeCompare(right.date)
+  );
+
+  // 饮食记录按日期合并，同一天以"记了更多餐"的那份为准。
+  const mealHistory: Record<string, MealHistoryEntry> = { ...(remote.mealHistory ?? {}) };
+  Object.entries(local.mealHistory ?? {}).forEach(([date, entry]) => {
+    const previous = mealHistory[date];
+    if (!previous || (entry.loggedMealCount ?? 0) >= (previous.loggedMealCount ?? 0)) {
+      mealHistory[date] = entry;
+    }
+  });
+
+  return {
+    ...remote,
+    ...local,
+    exerciseEntries,
+    mealHistory,
+    exercisePointDates: unionDates(remote.exercisePointDates, local.exercisePointDates),
+    mealRewardDates: unionDates(remote.mealRewardDates, local.mealRewardDates),
+    exercisePhotos: { ...(remote.exercisePhotos ?? {}), ...(local.exercisePhotos ?? {}) },
+    groupIds: Array.from(new Set([...(remote.groupIds ?? []), ...(local.groupIds ?? [])])),
+    points: Math.max(remote.points ?? 0, local.points ?? 0),
+    onboarded: remote.onboarded || local.onboarded,
+    mascotClaimed: remote.mascotClaimed || local.mascotClaimed,
+    nickname: local.nickname || remote.nickname,
+  };
+}
+
 const mascotOptions = [
   { id: "main", label: "柴犬同学", image: "/checkin-assets/main-shiba-v2.png" },
   { id: "dog-1", label: "小狗同学", image: "/checkin-assets/mascot-dog-1-v2.png" },
@@ -764,6 +837,12 @@ function getDietTip(meals: MealRecord[]) {
 export default function Home() {
   const [state, setState] = useState<AppState>(() => createInitialState());
   const [readyToSave, setReadyToSave] = useState(false);
+  // 服务器上这份数据的版本号（updated_at）。每次保存都要带上它，
+  // 对不上就说明别的设备在这期间写过，先合并再重试，绝不直接覆盖。
+  const serverUpdatedAtRef = useRef<string | null>(null);
+  // 登录状态下，必须先跟服务器对过一次账才允许自动保存，
+  // 否则这台设备上的旧数据会在页面加载 800 毫秒后把服务器的新记录冲掉。
+  const [remoteLoaded, setRemoteLoaded] = useState(false);
   const [authUsername, setAuthUsername] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -981,15 +1060,10 @@ export default function Home() {
         if (cancelled) return;
         if (data.user) {
           setAuthUsername(data.user.username);
-          // 只有这台设备本地从来没存过数据的时候（比如换了设备、清过浏览器缓存，
-          // 但登录状态的 cookie 还留着），才需要从服务器拉一次数据——
-          // 这种情况下本地反正是空的，拉服务器数据不会覆盖丢失任何东西。
-          // 如果本地已经有数据了，就不在这里拉取，避免覆盖掉本地可能更新的内容
-          // （比如刚打完卡就刷新页面，服务器那次同步可能还没落地）。
-          const hasLocalData = Boolean(window.localStorage.getItem("cozy-health-state-v2"));
-          if (!hasLocalData) {
-            await syncFromServerAfterAuth();
-          }
+          // 无论本地有没有数据，都必须先跟服务器对一次账。
+          // 之前这里会在"本地已有数据"时跳过拉取，结果是：在 A 设备打完卡后，
+          // 拿着旧数据的 B 设备一打开，就会把 A 的记录整个覆盖掉。
+          await syncFromServerAfterAuth(data.user.username);
         }
       } catch {
         // 没配置数据库连接串时这里会请求失败，安静地退回到只用本地存储的模式
@@ -1003,20 +1077,36 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function syncFromServerAfterAuth() {
+  async function syncFromServerAfterAuth(username: string) {
     try {
       const res = await fetch("/api/state");
-      if (!res.ok) return;
-      const data = (await res.json()) as { state: Partial<AppState> | null };
-      if (data.state) {
-        setState(normalizeAppState(data.state));
-      } else {
-        await fetch("/api/state", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ state }),
-        });
+      if (!res.ok) {
+        // 拉取失败就不要开启自动保存了：宁可这次不同步，也不能拿可能过时的
+        // 本地数据去覆盖服务器。数据仍然会正常存在本地。
+        setSyncStatus("error");
+        return;
       }
+      const data = (await res.json()) as {
+        state: Partial<AppState> | null;
+        updatedAt: string | null;
+      };
+      serverUpdatedAtRef.current = data.updatedAt;
+
+      // 这台设备上一次是谁在用。如果换了账号，本地那份数据不属于当前用户，
+      // 绝不能把它合并进来、更不能写到新账号的云端去。
+      const localOwner = window.localStorage.getItem("cozy-health-state-owner");
+      const localBelongsToMe = !localOwner || localOwner === username;
+
+      if (data.state) {
+        const remote = normalizeAppState(data.state);
+        setState((current) => (localBelongsToMe ? mergeAppState(current, remote) : remote));
+      } else if (!localBelongsToMe) {
+        // 新账号 + 别人用过的设备：从干净的初始状态开始。
+        setState(createInitialState());
+      }
+
+      window.localStorage.setItem("cozy-health-state-owner", username);
+      setRemoteLoaded(true);
       setSyncStatus("synced");
     } catch {
       setSyncStatus("error");
@@ -1045,7 +1135,7 @@ export default function Home() {
       }
       setAuthUsername(data.username);
       setAuthFormPassword("");
-      await syncFromServerAfterAuth();
+      await syncFromServerAfterAuth(data.username);
     } catch {
       setAuthError("网络请求失败，稍后再试");
     } finally {
@@ -1062,26 +1152,53 @@ export default function Home() {
     setAuthUsername(null);
     setSyncStatus("idle");
     setRemoteGroupMembers(null);
+    // 重置同步状态：下一个账号登录时必须重新跟服务器对账，
+    // 不能沿用上一个账号的版本号，否则会把别人的数据覆盖掉。
+    setRemoteLoaded(false);
+    serverUpdatedAtRef.current = null;
   }
 
   useEffect(() => {
-    if (!readyToSave || !authChecked || !authUsername) return;
+    if (!readyToSave || !authChecked || !authUsername || !remoteLoaded) return;
     setSyncStatus("syncing");
     const timer = window.setTimeout(async () => {
       try {
         const res = await fetch("/api/state", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ state }),
+          body: JSON.stringify({ state, baseUpdatedAt: serverUpdatedAtRef.current }),
         });
-        setSyncStatus(res.ok ? "synced" : "error");
+
+        if (res.status === 409) {
+          // 别的设备在这期间写过了。把服务器那份拿回来合并，
+          // 合并后的状态会再次触发保存，那一次就能带上正确的版本号。
+          const data = (await res.json()) as {
+            state: Partial<AppState> | null;
+            updatedAt: string | null;
+          };
+          serverUpdatedAtRef.current = data.updatedAt;
+          if (data.state) {
+            const remote = normalizeAppState(data.state);
+            setState((current) => mergeAppState(current, remote));
+          }
+          setSyncStatus("syncing");
+          return;
+        }
+
+        if (res.ok) {
+          const data = (await res.json()) as { updatedAt?: string };
+          if (data.updatedAt) serverUpdatedAtRef.current = data.updatedAt;
+          setSyncStatus("synced");
+        } else {
+          setSyncStatus("error");
+        }
       } catch {
         setSyncStatus("error");
       }
     }, 800);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readyToSave, authChecked, authUsername, state]);
+  }, [readyToSave, authChecked, authUsername, remoteLoaded, state]);
 
   useEffect(() => {
     if (!authUsername || currentGroup.id === "personal") {
