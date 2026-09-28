@@ -2971,6 +2971,34 @@ export default function Home() {
               ))}
             </section>
             {settingsFeedback && <p className="settings-feedback">{settingsFeedback}</p>}
+
+            <footer className="beian-footer">
+              <a
+                href="https://beian.miit.gov.cn/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                苏ICP备2026055042号-2
+              </a>
+              <a
+                className="beian-gongan"
+                href="https://beian.mps.gov.cn/#/query/webSearch?code=32048202001411"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path
+                    d="M12 2 4 5v6c0 4.4 3.4 8.3 8 9 4.6-.7 8-4.6 8-9V5l-8-3Z"
+                    fill="#4b74c4"
+                  />
+                  <path
+                    d="m10.6 14.6-2.2-2.2 1.1-1.1 1.1 1.1 3.3-3.3 1.1 1.1-4.4 4.4Z"
+                    fill="#fff"
+                  />
+                </svg>
+                苏公网安备32048202001411号
+              </a>
+            </footer>
           </section>
         )}
 

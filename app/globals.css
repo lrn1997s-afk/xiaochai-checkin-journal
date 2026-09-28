@@ -3650,6 +3650,31 @@ h2,
   line-height: 1.5;
 }
 
+.beian-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 22px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.beian-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.beian-footer a:hover {
+  text-decoration: underline;
+}
+
 .mascot-picker {
   position: absolute;
   inset: 0;
