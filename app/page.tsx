@@ -837,6 +837,9 @@ function getDietTip(meals: MealRecord[]) {
 export default function Home() {
   const [state, setState] = useState<AppState>(() => createInitialState());
   const [readyToSave, setReadyToSave] = useState(false);
+  // 首屏加载动画：一直显示到关键图片（柴犬主形象等）真正加载完，
+  // 再加一个最短展示时长，保证动画不会一闪而过。
+  const [splashDone, setSplashDone] = useState(false);
   // 服务器上这份数据的版本号（updated_at）。每次保存都要带上它，
   // 对不上就说明别的设备在这期间写过，先合并再重试，绝不直接覆盖。
   const serverUpdatedAtRef = useRef<string | null>(null);
@@ -1049,6 +1052,35 @@ export default function Home() {
     }, 0);
 
     return () => window.clearTimeout(timer);
+  }, []);
+
+  // 首屏启动动画：预加载关键图片，加载完（或超时兜底）后再收起加载动画。
+  useEffect(() => {
+    const start = Date.now();
+    const MIN_MS = 900; // 最短展示时长，保证加载动画被看到，不会一闪而过
+    const MAX_MS = 3000; // 兜底：不管图片有没有加载完，最多等 3 秒就进入
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      const wait = Math.max(0, MIN_MS - (Date.now() - start));
+      window.setTimeout(() => setSplashDone(true), wait);
+    };
+    // 首屏最先要用到的图片：柴犬主形象。加载完就收起启动画面。
+    const assets = ["/checkin-assets/main-shiba-v2.png"];
+    let remaining = assets.length;
+    assets.forEach((src) => {
+      const img = new window.Image();
+      const onSettled = () => {
+        remaining -= 1;
+        if (remaining <= 0) finish();
+      };
+      img.onload = onSettled;
+      img.onerror = onSettled;
+      img.src = src;
+    });
+    const hardTimer = window.setTimeout(finish, MAX_MS);
+    return () => window.clearTimeout(hardTimer);
   }, []);
 
   useEffect(() => {
@@ -1865,11 +1897,22 @@ export default function Home() {
       <audio ref={bgmRef} src="/checkin-assets/bgm.mp3" loop preload="auto" />
       <audio ref={clickAudioRef} src="/checkin-assets/click.wav" preload="auto" />
       <section className="phone journal-phone" aria-label="小柴打卡手帐">
-        {!readyToSave && (
+        {(!readyToSave || !splashDone) && (
           <div className="app-loading-screen" role="status" aria-label="加载中">
-            <Image src="/checkin-assets/main-shiba-v2.png" width={140} height={140} alt="" unoptimized />
+            <div className="app-loading-stage">
+              <Image
+                className="app-loading-mascot"
+                src="/checkin-assets/main-shiba-v2.png"
+                width={140}
+                height={140}
+                alt=""
+                unoptimized
+              />
+              <span className="app-loading-shadow" aria-hidden="true"></span>
+            </div>
             <strong>小柴打卡手帐</strong>
-            <div className="app-loading-dots">
+            <p className="app-loading-tip">正在准备你的手帐…</p>
+            <div className="app-loading-dots" aria-hidden="true">
               <span></span>
               <span></span>
               <span></span>
