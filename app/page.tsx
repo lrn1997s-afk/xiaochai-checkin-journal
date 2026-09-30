@@ -210,7 +210,6 @@ const exercisePointReward = 10;
 const perfectMealPointReward = 5;
 const mascotChangeCost = 100;
 const missedExerciseReminderDays = 3;
-const adminAccount = { username: "admin", password: "healthy2026" };
 
 const exerciseTags = ["游泳", "攀岩", "健身", "瑜伽", "徒步", "跳操", "跑步", "散步", "自定义"];
 const leaveReasons = ["生理期", "身体不适", "受伤恢复", "太累了", "特殊安排"];
@@ -781,6 +780,25 @@ async function compressPhotoFile(file: File, maxSide = 900, quality = 0.72) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+// 把压缩好的照片上传到 Blob 存储，返回图片地址（/api/photo/xxx）。
+// 上传失败时退回用本地 base64，保证打卡不会因为网络问题而失败（只是这张暂时更占空间）。
+async function uploadPhoto(dataUrl: string): Promise<string> {
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: dataUrl }),
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { url?: string };
+      if (json.url) return json.url;
+    }
+  } catch {
+    // 忽略，走下面的兜底
+  }
+  return dataUrl;
+}
+
 function getDailyQuoteIndex(dateKey: string) {
   const seed = Number(dateKey.replaceAll("-", ""));
   return seed % dailyQuotes.length;
@@ -871,10 +889,11 @@ export default function Home() {
   const [showPlatePicker, setShowPlatePicker] = useState(false);
   const [showMascotPicker, setShowMascotPicker] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState("");
+  // "我的"页里外观设置（字体/字号）默认折叠，点一下才展开，减少页面杂乱。
+  const [showAppearance, setShowAppearance] = useState(false);
   const [successText, setSuccessText] = useState("今天的健康小目标贴好了。");
   const [onboardingName, setOnboardingName] = useState("");
   const [onboardingMascot, setOnboardingMascot] = useState("main");
-  const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [selectedRecordUserId, setSelectedRecordUserId] = useState("me");
   const [adminTargetUserId, setAdminTargetUserId] = useState("u-momo");
   const [adminPointAmount, setAdminPointAmount] = useState(50);
@@ -1097,10 +1116,15 @@ export default function Home() {
     (async () => {
       try {
         const res = await fetch("/api/auth/me");
-        const data = (await res.json()) as { user: { username: string } | null };
+        const data = (await res.json()) as { user: { username: string; isAdmin?: boolean } | null };
         if (cancelled) return;
         if (data.user) {
           setAuthUsername(data.user.username);
+          // 管理员身份以服务端为准：从 /api/auth/me 读取，本地改不了。
+          const serverIsAdmin = data.user.isAdmin === true;
+          setState((current) =>
+            current.isAdmin === serverIsAdmin ? current : { ...current, isAdmin: serverIsAdmin }
+          );
           // 无论本地有没有数据，都必须先跟服务器对一次账。
           // 之前这里会在"本地已有数据"时跳过拉取，结果是：在 A 设备打完卡后，
           // 拿着旧数据的 B 设备一打开，就会把 A 的记录整个覆盖掉。
@@ -1366,24 +1390,19 @@ export default function Home() {
 
   function completeOnboarding() {
     const name = onboardingName.trim();
-    const wantsAdmin = name.toLowerCase() === adminAccount.username;
     if (!name) {
       setSettingsFeedback("先写一个用户名，再开始贴手帐。");
       return;
     }
-    if (wantsAdmin && adminPasswordInput !== adminAccount.password) {
-      setSettingsFeedback("管理员密码不对，普通用户可以换一个用户名进入。");
-      return;
-    }
 
+    // 引导页只创建普通用户。管理员身份一律走服务端校验（设置里「升级为管理员」），
+    // 不再由昵称 + 前端写死的密码决定，避免任何人本地就能变成管理员。
     setState((current) => ({
       ...current,
       onboarded: true,
-      isAdmin: wantsAdmin,
-      nickname: wantsAdmin ? "管理员" : name.slice(0, 8),
+      nickname: name.slice(0, 8),
       mascot: onboardingMascot,
       mascotClaimed: true,
-      points: wantsAdmin ? 999999 : current.points,
       visibility: "public",
     }));
     setSettingsFeedback("");
@@ -1558,7 +1577,8 @@ export default function Home() {
       return;
     }
     try {
-      const photo = await compressPhotoFile(file, 900, 0.72);
+      const compressed = await compressPhotoFile(file, 900, 0.72);
+      const photo = await uploadPhoto(compressed);
       saveExercise(photo);
     } catch {
       setSettingsFeedback("这张照片暂时无法读取，换一张图片再试试。");
@@ -1635,7 +1655,8 @@ export default function Home() {
   async function handleMealPhoto(mealId: MealKey, file: File | undefined) {
     if (!file) return;
     try {
-      const photo = await compressPhotoFile(file, 900, 0.72);
+      const compressed = await compressPhotoFile(file, 900, 0.72);
+      const photo = await uploadPhoto(compressed);
       setState((current) => ({
         ...current,
         meals: current.meals.map((meal) => (meal.id === mealId ? { ...meal, logged: true } : meal)),
@@ -1893,6 +1914,11 @@ export default function Home() {
     }
   }
 
+  // 登录优先：只有「已登录 + 已选形象」才进入主界面；已登录但还没选形象走引导页；
+  // 检查完登录状态却没登录，就显示开场的登录/注册门。退出登录后 authUsername 变空，自然弹回登录门。
+  const appVisible = !!authUsername && state.onboarded;
+  const showLoginGate = authChecked && !authUsername;
+
   return (
     <main
       className={`app-canvas bg-${currentBackground.id} text-size-${currentTextSize.id}`}
@@ -1936,7 +1962,7 @@ export default function Home() {
           <span>{statusBarTime}</span>
           <span aria-hidden="true">▮▮</span>
         </header>
-        {state.onboarded && (
+        {appVisible && (
           <button
             className={soundMuted ? "sound-toggle muted" : "sound-toggle"}
             type="button"
@@ -1947,13 +1973,80 @@ export default function Home() {
           </button>
         )}
 
-        {state.onboarded && view !== "home" && (
+        {appVisible && view !== "home" && (
           <button className="back-button" type="button" onClick={() => setView("home")} aria-label="返回首页">
             ‹
           </button>
         )}
 
-        {!state.onboarded && (
+        {!authChecked && (
+          <section className="screen onboarding-screen">
+            <section className="onboarding-card">
+              <p className="screen-note">正在进入…</p>
+            </section>
+          </section>
+        )}
+
+        {showLoginGate && (
+          <section className="screen onboarding-screen">
+            <section className="onboarding-card">
+              <span className="sticker-tape" aria-hidden="true" />
+              <div>
+                <span className="eyebrow">{authMode === "login" ? "欢迎回来" : "第一次来"}</span>
+                <h1>{authMode === "login" ? "登录你的手帐" : "注册一个账号"}</h1>
+                <p>登录后昵称、积分、形象和打卡记录都会存在云端，换手机也不会丢。</p>
+              </div>
+              <div className="font-toggle">
+                <button
+                  className={authMode === "login" ? "active" : ""}
+                  type="button"
+                  onClick={() => {
+                    setAuthMode("login");
+                    setAuthError("");
+                  }}
+                >
+                  登录
+                </button>
+                <button
+                  className={authMode === "register" ? "active" : ""}
+                  type="button"
+                  onClick={() => {
+                    setAuthMode("register");
+                    setAuthError("");
+                  }}
+                >
+                  注册新账号
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="用户名（3-20位字母数字下划线）"
+                value={authFormUsername}
+                onChange={(event) => setAuthFormUsername(event.target.value)}
+              />
+              <input
+                type="password"
+                placeholder="密码（至少6位）"
+                value={authFormPassword}
+                onChange={(event) => setAuthFormPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleAuthSubmit();
+                }}
+              />
+              {authError && <small style={{ color: "#c0554a" }}>{authError}</small>}
+              <button
+                className="primary-sticker onboarding-submit"
+                type="button"
+                disabled={authBusy}
+                onClick={handleAuthSubmit}
+              >
+                {authBusy ? "处理中…" : authMode === "login" ? "登录" : "注册并开始"}
+              </button>
+            </section>
+          </section>
+        )}
+
+        {authUsername && !state.onboarded && (
           <section className="screen onboarding-screen">
             <section className="onboarding-card">
               <span className="sticker-tape" aria-hidden="true" />
@@ -1973,18 +2066,6 @@ export default function Home() {
                   placeholder="比如 柴犬同学"
                 />
               </label>
-              {onboardingName.trim().toLowerCase() === adminAccount.username && (
-                <label className="nickname-editor onboarding-name" htmlFor="admin-password">
-                  <small>管理员密码</small>
-                  <input
-                    id="admin-password"
-                    type="password"
-                    value={adminPasswordInput}
-                    onChange={(event) => setAdminPasswordInput(event.target.value)}
-                    placeholder="输入管理员密码"
-                  />
-                </label>
-              )}
               <div className="onboarding-mascots" aria-label="选择形象">
                 {mascotOptions.map((option) => (
                   <button
@@ -2006,7 +2087,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "home" && (
+        {appVisible && view === "home" && (
           <section className="screen home-screen">
             <section className="hero-sheet" aria-label="今日健康总览">
               <div className="hero-copy">
@@ -2101,7 +2182,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "exercise" && (
+        {appVisible && view === "exercise" && (
           <section className="screen exercise-screen">
             <div className="center-title">运动打卡</div>
             <section className="detail-sheet exercise-detail">
@@ -2235,7 +2316,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "diet" && (
+        {appVisible && view === "diet" && (
           <section className="screen diet-screen">
             <div className="center-title">饮食记录</div>
 
@@ -2418,7 +2499,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "records" && (
+        {appVisible && view === "records" && (
           <section className="screen records-screen">
             <div className="center-title">健康记录</div>
             {joinedGroups.length > 1 && (
@@ -2613,7 +2694,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "rank" && (
+        {appVisible && view === "rank" && (
           <section className="screen rank-screen">
             <div className="center-title">小伙伴榜</div>
             <p className="group-context">{currentGroup.name} · 只显示本群成员</p>
@@ -2651,7 +2732,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "me" && (
+        {appVisible && view === "me" && (
           <section className="screen me-screen">
             <div className="center-title">我的</div>
             <section className="profile-sheet">
@@ -2773,11 +2854,9 @@ export default function Home() {
             <section className="appearance-sheet" aria-label="账号">
               <div className="settings-block-heading">
                 <h2>账号</h2>
-                <p>注册一个账号，数据就能存到服务器上，换设备也能接着用。</p>
+                <p>当前登录的账号，数据都会自动同步到云端。</p>
               </div>
-              {!authChecked ? (
-                <p className="screen-note">正在检查登录状态…</p>
-              ) : authUsername ? (
+              {(
                 <div className="appearance-row">
                   <small>当前账号</small>
                   <div className="font-toggle" style={{ gridTemplateColumns: "1fr auto" }}>
@@ -2804,13 +2883,31 @@ export default function Home() {
                       />
                       <button
                         type="button"
-                        onClick={() => {
-                          if (adminUpgradeInput === adminAccount.password) {
-                            setState((current) => ({ ...current, isAdmin: true, points: 999999 }));
-                            setAdminUpgradeInput("");
-                            setSettingsFeedback("已升级为管理员。");
-                          } else {
-                            setSettingsFeedback("管理员密码不对。");
+                        onClick={async () => {
+                          // 管理员校验放在服务端：把密码发给 /api/admin/promote，
+                          // 服务端跟环境变量里的密码比对，通过后才把这个账号标记为管理员。
+                          // 前端不再保存任何管理员密码。
+                          const pw = adminUpgradeInput;
+                          if (!pw) {
+                            setSettingsFeedback("请输入管理员密码。");
+                            return;
+                          }
+                          try {
+                            const res = await fetch("/api/admin/promote", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ password: pw }),
+                            });
+                            if (res.ok) {
+                              setState((current) => ({ ...current, isAdmin: true }));
+                              setAdminUpgradeInput("");
+                              setSettingsFeedback("已升级为管理员。");
+                            } else {
+                              const data = await res.json().catch(() => ({}));
+                              setSettingsFeedback(data.error ?? "管理员密码不对。");
+                            }
+                          } catch {
+                            setSettingsFeedback("网络请求失败，稍后再试。");
                           }
                         }}
                       >
@@ -2820,55 +2917,22 @@ export default function Home() {
                   )}
                   {state.isAdmin && <small>当前账号已是管理员</small>}
                 </div>
-              ) : (
-                <div className="appearance-row">
-                  <div className="font-toggle">
-                    <button
-                      className={authMode === "login" ? "active" : ""}
-                      type="button"
-                      onClick={() => {
-                        setAuthMode("login");
-                        setAuthError("");
-                      }}
-                    >
-                      登录
-                    </button>
-                    <button
-                      className={authMode === "register" ? "active" : ""}
-                      type="button"
-                      onClick={() => {
-                        setAuthMode("register");
-                        setAuthError("");
-                      }}
-                    >
-                      注册新账号
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="用户名（3-20位字母数字下划线）"
-                    value={authFormUsername}
-                    onChange={(event) => setAuthFormUsername(event.target.value)}
-                  />
-                  <input
-                    type="password"
-                    placeholder="密码（至少6位）"
-                    value={authFormPassword}
-                    onChange={(event) => setAuthFormPassword(event.target.value)}
-                  />
-                  {authError && <small style={{ color: "#c0554a" }}>{authError}</small>}
-                  <button className="primary-sticker" type="button" disabled={authBusy} onClick={handleAuthSubmit}>
-                    {authBusy ? "处理中…" : authMode === "login" ? "登录" : "注册"}
-                  </button>
-                </div>
               )}
             </section>
 
             <section className="appearance-sheet" aria-label="外观设置">
-              <div className="settings-block-heading">
-                <h2>外观设置</h2>
-                <p>字体看着累？换个自己顺眼的。</p>
-              </div>
+              <button
+                type="button"
+                className="settings-block-heading settings-collapse-toggle"
+                onClick={() => setShowAppearance((value) => !value)}
+                aria-expanded={showAppearance}
+                style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer", display: "block" }}
+              >
+                <h2>外观设置 <span aria-hidden="true">{showAppearance ? "▾" : "▸"}</span></h2>
+                <p>字体看着累？换个自己顺眼的。{showAppearance ? "" : "（点这里展开）"}</p>
+              </button>
+              {showAppearance && (
+                <>
               <div className="appearance-row">
                 <small>标题字体</small>
                 <div className="font-toggle">
@@ -2916,6 +2980,8 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+                </>
+              )}
             </section>
 
             {state.isAdmin && (
@@ -3058,7 +3124,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && view === "success" && (
+        {appVisible && view === "success" && (
           <section className="screen success-screen">
             <section className="success-sheet">
               <span className="sticker-tape" aria-hidden="true" />
@@ -3105,7 +3171,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && showMascotPicker && (
+        {appVisible && showMascotPicker && (
           <section className="mascot-picker" aria-label="更换形象">
             <button className="plate-picker-backdrop" type="button" aria-label="关闭形象选择" onClick={() => setShowMascotPicker(false)} />
             <div className="plate-picker-sheet mascot-picker-sheet">
@@ -3134,7 +3200,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && exercisePhotoPreview && (
+        {appVisible && exercisePhotoPreview && (
           <section className="exercise-photo-viewer" aria-label="查看运动打卡照片">
             <button
               className="plate-picker-backdrop"
@@ -3158,7 +3224,7 @@ export default function Home() {
           </section>
         )}
 
-        {state.onboarded && <nav className="bottom-nav bottom-dock" aria-label="底部导航">
+        {appVisible && <nav className="bottom-nav bottom-dock" aria-label="底部导航">
           <button className={view === "home" ? "active" : ""} type="button" onClick={() => setView("home")}>
             <span>⌂</span>首页
           </button>
