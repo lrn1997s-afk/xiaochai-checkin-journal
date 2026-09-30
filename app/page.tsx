@@ -780,6 +780,25 @@ async function compressPhotoFile(file: File, maxSide = 900, quality = 0.72) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+// 把压缩好的照片上传到 Blob 存储，返回图片地址（/api/photo/xxx）。
+// 上传失败时退回用本地 base64，保证打卡不会因为网络问题而失败（只是这张暂时更占空间）。
+async function uploadPhoto(dataUrl: string): Promise<string> {
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: dataUrl }),
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { url?: string };
+      if (json.url) return json.url;
+    }
+  } catch {
+    // 忽略，走下面的兜底
+  }
+  return dataUrl;
+}
+
 function getDailyQuoteIndex(dateKey: string) {
   const seed = Number(dateKey.replaceAll("-", ""));
   return seed % dailyQuotes.length;
@@ -1556,7 +1575,8 @@ export default function Home() {
       return;
     }
     try {
-      const photo = await compressPhotoFile(file, 900, 0.72);
+      const compressed = await compressPhotoFile(file, 900, 0.72);
+      const photo = await uploadPhoto(compressed);
       saveExercise(photo);
     } catch {
       setSettingsFeedback("这张照片暂时无法读取，换一张图片再试试。");
@@ -1633,7 +1653,8 @@ export default function Home() {
   async function handleMealPhoto(mealId: MealKey, file: File | undefined) {
     if (!file) return;
     try {
-      const photo = await compressPhotoFile(file, 900, 0.72);
+      const compressed = await compressPhotoFile(file, 900, 0.72);
+      const photo = await uploadPhoto(compressed);
       setState((current) => ({
         ...current,
         meals: current.meals.map((meal) => (meal.id === mealId ? { ...meal, logged: true } : meal)),
