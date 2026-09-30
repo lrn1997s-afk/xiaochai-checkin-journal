@@ -210,6 +210,7 @@ const exercisePointReward = 10;
 const perfectMealPointReward = 5;
 const mascotChangeCost = 100;
 const missedExerciseReminderDays = 3;
+const adminAccount = { username: "admin", password: "healthy2026" };
 
 const exerciseTags = ["游泳", "攀岩", "健身", "瑜伽", "徒步", "跳操", "跑步", "散步", "自定义"];
 const leaveReasons = ["生理期", "身体不适", "受伤恢复", "太累了", "特殊安排"];
@@ -780,25 +781,6 @@ async function compressPhotoFile(file: File, maxSide = 900, quality = 0.72) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-// 把压缩好的照片上传到 Blob 存储，返回图片地址（/api/photo/xxx）。
-// 上传失败时退回用本地 base64，保证打卡不会因为网络问题而失败（只是这张暂时更占空间）。
-async function uploadPhoto(dataUrl: string): Promise<string> {
-  try {
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: dataUrl }),
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { url?: string };
-      if (json.url) return json.url;
-    }
-  } catch {
-    // 忽略，走下面的兜底
-  }
-  return dataUrl;
-}
-
 function getDailyQuoteIndex(dateKey: string) {
   const seed = Number(dateKey.replaceAll("-", ""));
   return seed % dailyQuotes.length;
@@ -892,6 +874,7 @@ export default function Home() {
   const [successText, setSuccessText] = useState("今天的健康小目标贴好了。");
   const [onboardingName, setOnboardingName] = useState("");
   const [onboardingMascot, setOnboardingMascot] = useState("main");
+  const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [selectedRecordUserId, setSelectedRecordUserId] = useState("me");
   const [adminTargetUserId, setAdminTargetUserId] = useState("u-momo");
   const [adminPointAmount, setAdminPointAmount] = useState(50);
@@ -1114,15 +1097,10 @@ export default function Home() {
     (async () => {
       try {
         const res = await fetch("/api/auth/me");
-        const data = (await res.json()) as { user: { username: string; isAdmin?: boolean } | null };
+        const data = (await res.json()) as { user: { username: string } | null };
         if (cancelled) return;
         if (data.user) {
           setAuthUsername(data.user.username);
-          // 管理员身份以服务端为准：从 /api/auth/me 读取，本地改不了。
-          const serverIsAdmin = data.user.isAdmin === true;
-          setState((current) =>
-            current.isAdmin === serverIsAdmin ? current : { ...current, isAdmin: serverIsAdmin }
-          );
           // 无论本地有没有数据，都必须先跟服务器对一次账。
           // 之前这里会在"本地已有数据"时跳过拉取，结果是：在 A 设备打完卡后，
           // 拿着旧数据的 B 设备一打开，就会把 A 的记录整个覆盖掉。
@@ -1388,19 +1366,24 @@ export default function Home() {
 
   function completeOnboarding() {
     const name = onboardingName.trim();
+    const wantsAdmin = name.toLowerCase() === adminAccount.username;
     if (!name) {
       setSettingsFeedback("先写一个用户名，再开始贴手帐。");
       return;
     }
+    if (wantsAdmin && adminPasswordInput !== adminAccount.password) {
+      setSettingsFeedback("管理员密码不对，普通用户可以换一个用户名进入。");
+      return;
+    }
 
-    // 引导页只创建普通用户。管理员身份一律走服务端校验（设置里「升级为管理员」），
-    // 不再由昵称 + 前端写死的密码决定，避免任何人本地就能变成管理员。
     setState((current) => ({
       ...current,
       onboarded: true,
-      nickname: name.slice(0, 8),
+      isAdmin: wantsAdmin,
+      nickname: wantsAdmin ? "管理员" : name.slice(0, 8),
       mascot: onboardingMascot,
       mascotClaimed: true,
+      points: wantsAdmin ? 999999 : current.points,
       visibility: "public",
     }));
     setSettingsFeedback("");
@@ -1575,8 +1558,7 @@ export default function Home() {
       return;
     }
     try {
-      const compressed = await compressPhotoFile(file, 900, 0.72);
-      const photo = await uploadPhoto(compressed);
+      const photo = await compressPhotoFile(file, 900, 0.72);
       saveExercise(photo);
     } catch {
       setSettingsFeedback("这张照片暂时无法读取，换一张图片再试试。");
@@ -1653,8 +1635,7 @@ export default function Home() {
   async function handleMealPhoto(mealId: MealKey, file: File | undefined) {
     if (!file) return;
     try {
-      const compressed = await compressPhotoFile(file, 900, 0.72);
-      const photo = await uploadPhoto(compressed);
+      const photo = await compressPhotoFile(file, 900, 0.72);
       setState((current) => ({
         ...current,
         meals: current.meals.map((meal) => (meal.id === mealId ? { ...meal, logged: true } : meal)),
@@ -1992,6 +1973,18 @@ export default function Home() {
                   placeholder="比如 柴犬同学"
                 />
               </label>
+              {onboardingName.trim().toLowerCase() === adminAccount.username && (
+                <label className="nickname-editor onboarding-name" htmlFor="admin-password">
+                  <small>管理员密码</small>
+                  <input
+                    id="admin-password"
+                    type="password"
+                    value={adminPasswordInput}
+                    onChange={(event) => setAdminPasswordInput(event.target.value)}
+                    placeholder="输入管理员密码"
+                  />
+                </label>
+              )}
               <div className="onboarding-mascots" aria-label="选择形象">
                 {mascotOptions.map((option) => (
                   <button
@@ -2811,31 +2804,13 @@ export default function Home() {
                       />
                       <button
                         type="button"
-                        onClick={async () => {
-                          // 管理员校验放在服务端：把密码发给 /api/admin/promote，
-                          // 服务端跟环境变量里的密码比对，通过后才把这个账号标记为管理员。
-                          // 前端不再保存任何管理员密码。
-                          const pw = adminUpgradeInput;
-                          if (!pw) {
-                            setSettingsFeedback("请输入管理员密码。");
-                            return;
-                          }
-                          try {
-                            const res = await fetch("/api/admin/promote", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ password: pw }),
-                            });
-                            if (res.ok) {
-                              setState((current) => ({ ...current, isAdmin: true }));
-                              setAdminUpgradeInput("");
-                              setSettingsFeedback("已升级为管理员。");
-                            } else {
-                              const data = await res.json().catch(() => ({}));
-                              setSettingsFeedback(data.error ?? "管理员密码不对。");
-                            }
-                          } catch {
-                            setSettingsFeedback("网络请求失败，稍后再试。");
+                        onClick={() => {
+                          if (adminUpgradeInput === adminAccount.password) {
+                            setState((current) => ({ ...current, isAdmin: true, points: 999999 }));
+                            setAdminUpgradeInput("");
+                            setSettingsFeedback("已升级为管理员。");
+                          } else {
+                            setSettingsFeedback("管理员密码不对。");
                           }
                         }}
                       >
