@@ -7,7 +7,7 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ user: null }, { status: 200 });
     }
-    return NextResponse.json({ user: { username: user.username } });
+    return NextResponse.json({ user: { username: user.username, isAdmin: user.isAdmin } });
   } catch {
     return NextResponse.json({ user: null }, { status: 200 });
   }

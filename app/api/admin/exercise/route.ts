@@ -25,11 +25,9 @@ async function requireAdmin() {
   const user = await getSessionUser();
   if (!user) return { error: NextResponse.json({ error: "未登录" }, { status: 401 }) } as const;
 
-  const rows = await sql<{ state_json: StoredState | null }[]>`
-    select state_json from user_states where user_id = ${user.id} limit 1
-  `;
-  const isAdmin = rows[0]?.state_json?.isAdmin === true;
-  if (!isAdmin) {
+  // 管理员身份以 users 表的 is_admin 字段为准（服务端唯一真源），
+  // 不再相信用户自己 state_json 里的 isAdmin —— 那个字段是用户自己能改的。
+  if (!user.isAdmin) {
     return { error: NextResponse.json({ error: "不是管理员账号" }, { status: 403 }) } as const;
   }
   return { user } as const;

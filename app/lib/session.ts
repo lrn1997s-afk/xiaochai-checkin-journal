@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { sql } from "./db";
 import { SESSION_COOKIE_NAME } from "./auth";
 
-export type SessionUser = { id: number; username: string };
+export type SessionUser = { id: number; username: string; isAdmin: boolean };
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
@@ -10,8 +10,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!token) return null;
 
   try {
-    const rows = await sql<{ id: number; username: string }[]>`
-      select users.id, users.username
+    const rows = await sql<{ id: number; username: string; isAdmin: boolean }[]>`
+      select users.id, users.username, coalesce(users.is_admin, false) as "isAdmin"
       from sessions
       join users on users.id = sessions.user_id
       where sessions.token = ${token}

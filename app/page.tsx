@@ -210,7 +210,6 @@ const exercisePointReward = 10;
 const perfectMealPointReward = 5;
 const mascotChangeCost = 100;
 const missedExerciseReminderDays = 3;
-const adminAccount = { username: "admin", password: "healthy2026" };
 
 const exerciseTags = ["游泳", "攀岩", "健身", "瑜伽", "徒步", "跳操", "跑步", "散步", "自定义"];
 const leaveReasons = ["生理期", "身体不适", "受伤恢复", "太累了", "特殊安排"];
@@ -840,6 +839,8 @@ export default function Home() {
   // 首屏加载动画：一直显示到关键图片（柴犬主形象等）真正加载完，
   // 再加一个最短展示时长，保证动画不会一闪而过。
   const [splashDone, setSplashDone] = useState(false);
+  // 淡出结束后彻底卸载加载动画（先淡出再移除，收尾更柔和）。
+  const [splashGone, setSplashGone] = useState(false);
   // 服务器上这份数据的版本号（updated_at）。每次保存都要带上它，
   // 对不上就说明别的设备在这期间写过，先合并再重试，绝不直接覆盖。
   const serverUpdatedAtRef = useRef<string | null>(null);
@@ -872,7 +873,6 @@ export default function Home() {
   const [successText, setSuccessText] = useState("今天的健康小目标贴好了。");
   const [onboardingName, setOnboardingName] = useState("");
   const [onboardingMascot, setOnboardingMascot] = useState("main");
-  const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [selectedRecordUserId, setSelectedRecordUserId] = useState("me");
   const [adminTargetUserId, setAdminTargetUserId] = useState("u-momo");
   const [adminPointAmount, setAdminPointAmount] = useState(50);
@@ -1057,7 +1057,7 @@ export default function Home() {
   // 首屏启动动画：预加载关键图片，加载完（或超时兜底）后再收起加载动画。
   useEffect(() => {
     const start = Date.now();
-    const MIN_MS = 900; // 最短展示时长，保证加载动画被看到，不会一闪而过
+    const MIN_MS = 1400; // 最短展示时长，保证加载动画被完整看到，不会一闪而过
     const MAX_MS = 3000; // 兜底：不管图片有没有加载完，最多等 3 秒就进入
     let finished = false;
     const finish = () => {
@@ -1083,15 +1083,27 @@ export default function Home() {
     return () => window.clearTimeout(hardTimer);
   }, []);
 
+  // 加载动画收尾：本地状态就绪且展示时长到了之后，先淡出、再彻底卸载。
+  useEffect(() => {
+    if (!readyToSave || !splashDone) return;
+    const timer = window.setTimeout(() => setSplashGone(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [readyToSave, splashDone]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/auth/me");
-        const data = (await res.json()) as { user: { username: string } | null };
+        const data = (await res.json()) as { user: { username: string; isAdmin?: boolean } | null };
         if (cancelled) return;
         if (data.user) {
           setAuthUsername(data.user.username);
+          // 管理员身份以服务端为准：从 /api/auth/me 读取，本地改不了。
+          const serverIsAdmin = data.user.isAdmin === true;
+          setState((current) =>
+            current.isAdmin === serverIsAdmin ? current : { ...current, isAdmin: serverIsAdmin }
+          );
           // 无论本地有没有数据，都必须先跟服务器对一次账。
           // 之前这里会在"本地已有数据"时跳过拉取，结果是：在 A 设备打完卡后，
           // 拿着旧数据的 B 设备一打开，就会把 A 的记录整个覆盖掉。
@@ -1357,24 +1369,19 @@ export default function Home() {
 
   function completeOnboarding() {
     const name = onboardingName.trim();
-    const wantsAdmin = name.toLowerCase() === adminAccount.username;
     if (!name) {
       setSettingsFeedback("先写一个用户名，再开始贴手帐。");
       return;
     }
-    if (wantsAdmin && adminPasswordInput !== adminAccount.password) {
-      setSettingsFeedback("管理员密码不对，普通用户可以换一个用户名进入。");
-      return;
-    }
 
+    // 引导页只创建普通用户。管理员身份一律走服务端校验（设置里「升级为管理员」），
+    // 不再由昵称 + 前端写死的密码决定，避免任何人本地就能变成管理员。
     setState((current) => ({
       ...current,
       onboarded: true,
-      isAdmin: wantsAdmin,
-      nickname: wantsAdmin ? "管理员" : name.slice(0, 8),
+      nickname: name.slice(0, 8),
       mascot: onboardingMascot,
       mascotClaimed: true,
-      points: wantsAdmin ? 999999 : current.points,
       visibility: "public",
     }));
     setSettingsFeedback("");
@@ -1897,8 +1904,12 @@ export default function Home() {
       <audio ref={bgmRef} src="/checkin-assets/bgm.mp3" loop preload="auto" />
       <audio ref={clickAudioRef} src="/checkin-assets/click.wav" preload="auto" />
       <section className="phone journal-phone" aria-label="小柴打卡手帐">
-        {(!readyToSave || !splashDone) && (
-          <div className="app-loading-screen" role="status" aria-label="加载中">
+        {!splashGone && (
+          <div
+            className={`app-loading-screen${readyToSave && splashDone ? " is-leaving" : ""}`}
+            role="status"
+            aria-label="加载中"
+          >
             <div className="app-loading-stage">
               <Image
                 className="app-loading-mascot"
@@ -1960,18 +1971,6 @@ export default function Home() {
                   placeholder="比如 柴犬同学"
                 />
               </label>
-              {onboardingName.trim().toLowerCase() === adminAccount.username && (
-                <label className="nickname-editor onboarding-name" htmlFor="admin-password">
-                  <small>管理员密码</small>
-                  <input
-                    id="admin-password"
-                    type="password"
-                    value={adminPasswordInput}
-                    onChange={(event) => setAdminPasswordInput(event.target.value)}
-                    placeholder="输入管理员密码"
-                  />
-                </label>
-              )}
               <div className="onboarding-mascots" aria-label="选择形象">
                 {mascotOptions.map((option) => (
                   <button
@@ -2791,13 +2790,31 @@ export default function Home() {
                       />
                       <button
                         type="button"
-                        onClick={() => {
-                          if (adminUpgradeInput === adminAccount.password) {
-                            setState((current) => ({ ...current, isAdmin: true, points: 999999 }));
-                            setAdminUpgradeInput("");
-                            setSettingsFeedback("已升级为管理员。");
-                          } else {
-                            setSettingsFeedback("管理员密码不对。");
+                        onClick={async () => {
+                          // 管理员校验放在服务端：把密码发给 /api/admin/promote，
+                          // 服务端跟环境变量里的密码比对，通过后才把这个账号标记为管理员。
+                          // 前端不再保存任何管理员密码。
+                          const pw = adminUpgradeInput;
+                          if (!pw) {
+                            setSettingsFeedback("请输入管理员密码。");
+                            return;
+                          }
+                          try {
+                            const res = await fetch("/api/admin/promote", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ password: pw }),
+                            });
+                            if (res.ok) {
+                              setState((current) => ({ ...current, isAdmin: true }));
+                              setAdminUpgradeInput("");
+                              setSettingsFeedback("已升级为管理员。");
+                            } else {
+                              const data = await res.json().catch(() => ({}));
+                              setSettingsFeedback(data.error ?? "管理员密码不对。");
+                            }
+                          } catch {
+                            setSettingsFeedback("网络请求失败，稍后再试。");
                           }
                         }}
                       >

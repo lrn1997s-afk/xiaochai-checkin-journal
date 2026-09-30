@@ -34,8 +34,13 @@ export async function GET() {
       select state_json, updated_at from user_states where user_id = ${user.id} limit 1
     `;
     const row = rows[0];
+    // 管理员标记以 users 表为准：读取时按服务端真源回填，本地存的 isAdmin 不作数。
+    let state = row?.state_json ?? null;
+    if (state && typeof state === "object") {
+      state = { ...(state as Record<string, unknown>), isAdmin: user.isAdmin };
+    }
     return NextResponse.json({
-      state: row?.state_json ?? null,
+      state,
       updatedAt: row ? toIso(row.updated_at) : null,
     });
   } catch (error) {
@@ -63,6 +68,8 @@ export async function PUT(request: Request) {
 
   try {
     const jsonSafeState = JSON.parse(JSON.stringify(body.state)) as StoredState;
+    // 不允许通过保存 state 把自己变成管理员：isAdmin 一律以 users 表为准。
+    jsonSafeState.isAdmin = user.isAdmin;
 
     const existingRows = await sql<{ state_json: unknown; updated_at: unknown }[]>`
       select state_json, updated_at from user_states where user_id = ${user.id} limit 1

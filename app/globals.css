@@ -5521,6 +5521,13 @@ h2,
   gap: 14px;
   background: linear-gradient(160deg, #fff3e6 0%, #ffe9d8 100%);
   border-radius: 32px;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+.app-loading-screen.is-leaving {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .app-loading-stage {
