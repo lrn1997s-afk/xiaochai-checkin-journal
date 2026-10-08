@@ -138,7 +138,9 @@ function exerciseEntryKey(entry: ExerciseEntry) {
 function mergeAppState(local: AppState, remote: AppState): AppState {
   // 本地没有任何真实数据时（比如刚清过缓存、或者 localStorage 解析失败退回了初始状态），
   // 直接采用服务器版本，一个字段都不要拿本地的去盖。
-  if (!hasRealData(local)) return remote;
+  // 但「刚选完形象、还没开始打卡」的新用户，本地虽然没有打卡数据，onboarded 却是真的，
+  // 这种情况绝不能用服务器那份空白（onboarded=false）把它盖掉——否则会一直被弹回选形象页。
+  if (!hasRealData(local) && !local.onboarded) return remote;
   if (!hasRealData(remote)) return local;
 
   const entryMap = new Map<string, ExerciseEntry>();

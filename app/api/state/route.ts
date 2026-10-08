@@ -122,10 +122,14 @@ export async function PUT(request: Request) {
     }
 
     // 条件更新：把版本号写进 where 条件，避免两个请求同时通过上面的检查。
+    // 注意：数据库的 updated_at 是微秒精度，而客户端拿到/回传的版本号（toIso）只有毫秒精度，
+    // 直接用 `updated_at = $1` 比较会因为微秒位对不上而永远匹配不到 0 行、从而陷入 409 死循环。
+    // 这里把两边都截断到毫秒再比，和上面字符串版本号的比较口径保持一致。
     const updated = await sql<{ updated_at: unknown }[]>`
       update user_states
       set state_json = ${sql.json(jsonSafeState as never)}, updated_at = now()
-      where user_id = ${user.id} and updated_at = ${new Date(body.baseUpdatedAt)}
+      where user_id = ${user.id}
+        and date_trunc('milliseconds', updated_at) = ${new Date(body.baseUpdatedAt)}
       returning updated_at
     `;
 
