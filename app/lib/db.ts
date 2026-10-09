@@ -31,21 +31,31 @@ function getClient(): ReturnType<typeof postgres> {
 // 这里对「连接类」的错误做自动重试：数据库正在唤醒时重试几次、每次多等一点，
 // 通常 1~3 秒就连上了，用户完全无感。注意只重试连接错误，绝不重试正常的 SQL 报错
 // （比如用户名已存在这种），避免把写操作重复执行。
-const RETRYABLE =
-  /CONNECT_TIMEOUT|CONNECTION_CLOSED|CONNECTION_ENDED|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN|terminating connection|Connection terminated|server closed the connection|the database system is (starting up|shutting down|not yet accepting)|Can't reach database|endpoint is disabled/i;
-
+// 关键判断：一个错误到底该不该重试。
+// 真正的 SQL 查询错误（用户名重复 23505、表不存在 42P01 等）都带有 5 位的 Postgres 错误码
+// （SQLSTATE），这类是"业务/逻辑错误"，重试没用、甚至有害，绝不重试。
+// 而数据库休眠被唤醒时的连接类错误（连接超时、连接被拒、socket 断开、DNS 失败等）
+// 根本到不了数据库、也就没有 SQLSTATE。所以规则反过来更稳妥：
+//   没有 SQLSTATE 的错误 → 一律当作"连接/临时错误"重试（不管它具体长什么样）；
+//   有 SQLSTATE 的错误 → 只对少数"服务器正在启动/关闭/过载"的临时状态重试。
+// 这样就不用去猜 Neon 冷启动到底报哪一句错——凡是连不上的，都会被兜住。
 function isRetryable(err: unknown): boolean {
-  const e = err as { code?: unknown; message?: unknown } | null;
+  const e = err as { code?: unknown } | null;
   if (!e) return false;
-  if (typeof e.code === "string" && RETRYABLE.test(e.code)) return true;
-  if (typeof e.message === "string" && RETRYABLE.test(e.message)) return true;
-  return false;
+  const code = typeof e.code === "string" ? e.code : "";
+  const isSqlState = /^[0-9A-Z]{5}$/.test(code);
+  if (isSqlState) {
+    // 08xxx = 连接异常类；57P01/02/03 = 服务器正在关闭/启动；53300 = 连接数过多。
+    return /^08/.test(code) || code === "57P01" || code === "57P02" || code === "57P03" || code === "53300";
+  }
+  // 没有 SQLSTATE 的错误（连接超时、ECONNREFUSED、socket 断开、DNS 等）都当临时错误重试。
+  return true;
 }
 
 async function runWithRetry<T>(exec: () => Promise<T>): Promise<T> {
   let lastErr: unknown;
-  // 最多 5 次尝试：间隔 0.3s、0.6s、1.0s、1.5s，给休眠的数据库足够的唤醒时间。
-  const delays = [300, 600, 1000, 1500];
+  // 最多 6 次尝试：间隔 0.4/0.8/1.4/2.2/3.0 秒，累计约 8 秒，给休眠的数据库足够的唤醒时间。
+  const delays = [400, 800, 1400, 2200, 3000];
   for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
       return await exec();
