@@ -360,7 +360,8 @@ const defaultGroups: Group[] = [
   { id: "group-test-10", name: "十人测试群", code: "TEST10" },
   { id: "group-lean-muscle", name: "薄肌俱乐部", code: "LEAN2026" },
 ];
-const defaultUserGroupIds = ["personal", "group-lean-muscle"];
+// 新用户默认只进"个人手帐"，不再自动塞进薄肌俱乐部。想进群要靠邀请码自己加。
+const defaultUserGroupIds = ["personal"];
 const currentGroupSetupVersion = 2;
 const legacyAutoJoinedGroupIds = ["personal", "group-friends"];
 const defaultWeeklyExerciseGoal = 2;
@@ -905,6 +906,8 @@ export default function Home() {
   const [backfillDuration, setBackfillDuration] = useState(30);
   const [backfillIntensity, setBackfillIntensity] = useState<Intensity>("正常");
   const [backfillFeedback, setBackfillFeedback] = useState("");
+  const [kickFeedback, setKickFeedback] = useState("");
+  const [kickingUsername, setKickingUsername] = useState("");
   const [showAllMealHistory, setShowAllMealHistory] = useState(false);
   const [statusBarTime, setStatusBarTime] = useState("--:--");
   const [newGroupName, setNewGroupName] = useState("");
@@ -1913,6 +1916,35 @@ export default function Home() {
       );
     } catch {
       setBackfillFeedback("网络请求失败，稍后再试。");
+    }
+  }
+
+  // 管理员把某人移出当前群组。踢出是可逆的——对方之后用邀请码还能再加回来。
+  async function kickMember(username: string, nickname: string) {
+    if (kickingUsername) return;
+    if (!window.confirm(`确定把「${nickname}」移出「${currentGroup.name}」吗？\n（对方的账号和数据都还在，只是退出这个群，之后可以用邀请码再加回来。）`)) {
+      return;
+    }
+    setKickingUsername(username);
+    setKickFeedback("");
+    try {
+      const res = await fetch("/api/admin/kick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: currentGroup.id, targetUsername: username }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setKickFeedback(data.error ?? "踢出失败，再试一次。");
+        return;
+      }
+      // 从本地成员列表里把他拿掉，界面立刻更新
+      setRemoteGroupMembers((current) => (current ? current.filter((member) => member.username !== username) : current));
+      setKickFeedback(`已把「${nickname}」移出${currentGroup.name}。`);
+    } catch {
+      setKickFeedback("网络请求失败，稍后再试。");
+    } finally {
+      setKickingUsername("");
     }
   }
 
@@ -3061,6 +3093,34 @@ export default function Home() {
                     <p>当前所在群组是"个人手帐"，没有真实成员——去"记录"页面顶部把群组切换到有其他成员的那个群，再回来看看。</p>
                   )}
                 </div>
+                <div className="admin-photo-review">
+                  <div className="record-mini-heading">
+                    <span>群成员管理</span>
+                  </div>
+                  {remoteGroupMembers && remoteGroupMembers.filter((m) => !m.isSelf).length > 0 ? (
+                    <>
+                      {remoteGroupMembers.filter((m) => !m.isSelf).map((member) => (
+                        <article className="admin-review-item" key={member.username}>
+                          <div>
+                            <strong>{member.nickname}</strong>
+                            <small>{member.username} · {member.points}分</small>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={kickingUsername === member.username}
+                            onClick={() => kickMember(member.username, member.nickname)}
+                          >
+                            {kickingUsername === member.username ? "移出中…" : "踢出本群"}
+                          </button>
+                        </article>
+                      ))}
+                      {kickFeedback && <p className="settings-feedback">{kickFeedback}</p>}
+                    </>
+                  ) : (
+                    <p>当前群组没有其他真实成员。（在"记录"页顶部把群组切到有成员的那个群，再回来就能踢人。）</p>
+                  )}
+                </div>
+
                 <div className="admin-photo-review">
                   <div className="record-mini-heading">
                     <span>打卡照片审核</span>
