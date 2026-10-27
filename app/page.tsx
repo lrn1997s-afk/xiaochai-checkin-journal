@@ -818,6 +818,26 @@ function splitHeadline(title: string) {
   return [title.slice(0, midpoint), title.slice(midpoint)];
 }
 
+// 月度打卡表用：某个月里哪些天打了卡、哪些天请了假（被驳回的不算）
+function shiftMonth(monthKey: string, delta: number) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getMonthCheckins(entries: ExerciseEntry[], monthKey: string) {
+  const done = new Set<string>();
+  const rest = new Set<string>();
+  if (!monthKey) return { done, rest };
+  for (const entry of entries) {
+    if (!entry.date.startsWith(`${monthKey}-`)) continue;
+    if (entry.leaveReason) rest.add(entry.date);
+    else if (entry.photoStatus !== "rejected") done.add(entry.date);
+  }
+  done.forEach((date) => rest.delete(date));
+  return { done, rest };
+}
+
 function getWeekEntries(entries: ExerciseEntry[], today = new Date()) {
   const start = startOfWeek(today);
   return entries.filter((entry) => new Date(entry.date) >= start && !entry.leaveReason && entry.photoStatus !== "rejected");
@@ -914,6 +934,7 @@ export default function Home() {
   const [newGroupName, setNewGroupName] = useState("");
   const [joinGroupCode, setJoinGroupCode] = useState("");
   const [groupBusy, setGroupBusy] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState("");
   const [exercisePhotoPreview, setExercisePhotoPreview] = useState<ExercisePhotoPreview | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const clickAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -960,6 +981,9 @@ export default function Home() {
   const displayMascot = isPigReminder ? pigReminderMascot : mascot;
   const displayPoints = state.isAdmin ? "∞" : String(state.points ?? 0);
   const weekEntries = getWeekEntries(state.exerciseEntries);
+  const thisMonthKey = todayKey ? todayKey.slice(0, 7) : "";
+  const activeMonth = calendarMonth || thisMonthKey;
+  const myMonthDone = getMonthCheckins(state.exerciseEntries, thisMonthKey).done.size;
   const weeklyExerciseGoal = normalizeWeeklyGoal(state.weeklyExerciseGoal);
   const todayExercise = getTodayExercise(state.exerciseEntries, todayKey);
   const todayExercisePhoto = state.exercisePhotos?.[todayKey] ?? todayExercise?.photo;
@@ -1811,7 +1835,7 @@ export default function Home() {
     const feedback: Record<string, string> = {
       账号设置: "登录后会同步昵称、积分、形象和打卡记录。",
       首页管理: "这里管理首页展示的打卡类目和隐藏工具。",
-      积分与兑换: "后续放餐盘、形象和其他奖励的积分兑换。",
+      积分与兑换: "后续放形象和其他奖励的积分兑换。",
       提醒设置: "运动连续 3 天未打卡会提醒，并进入小猪状态。",
       数据与隐私: "这里放记录导出、清除数据和隐私说明。",
     };
@@ -2228,15 +2252,15 @@ export default function Home() {
                   </span>
                 </button>
 
-                <button className="core-card diet" type="button" onClick={() => setView("diet")}>
+                <button className="core-card diet" type="button" onClick={() => { setSelectedRecordUserId("me"); setCalendarMonth(""); setView("records"); }}>
                   <span className="core-tape blue" aria-hidden="true" />
-                  <span className="core-stamp blue">{dietScore}%</span>
-                  <Image src="/checkin-assets/meal.png" width={1000} height={1000} alt="" />
-                  <small>饮食记录</small>
-                  <strong>{loggedMealCount}/4 餐</strong>
-                  <em>餐盘分数 {dietScore}%</em>
+                  <span className="core-stamp blue">本月</span>
+                  <Image src="/checkin-assets/open-record.png" width={1000} height={1000} alt="" />
+                  <small>月度打卡表</small>
+                  <strong>本月 {myMonthDone} 天</strong>
+                  <em>点开看整月日历</em>
                   <span className="core-progress blue" aria-hidden="true">
-                    <i style={{ width: `${dietScore}%` }} />
+                    <i style={{ width: `${Math.min(100, (myMonthDone / 30) * 100)}%` }} />
                   </span>
                 </button>
               </section>
@@ -2251,17 +2275,6 @@ export default function Home() {
                 <button type="button" onClick={() => setView("exercise")}>打卡</button>
               </div>
               <p>{todayExercise ? `今天已经记录 ${todayExercise.tag}，本周完成 ${exerciseProgress}/${weeklyExerciseGoal} 次。` : `游泳、攀岩、健身、瑜伽都算运动，本周先完成 ${weeklyExerciseGoal} 次。`}</p>
-            </section>
-
-            <section className="advice-sheet" aria-label="今日健康建议">
-              <div className="board-heading">
-                <div>
-                  <span>今日小建议</span>
-                  <h2>{dailyFoodAdvice.title}</h2>
-                </div>
-                <button type="button" onClick={() => setView("diet")}>记录</button>
-              </div>
-              <p>{dailyFoodAdvice.body}</p>
             </section>
 
             <div className="background-switcher theme-ribbon" aria-label="更换手绘格纹背景">
@@ -2618,7 +2631,7 @@ export default function Home() {
               <div>
                 <span>打开记录</span>
                 <h2>{selectedRecordUser.nickname} 的手帐</h2>
-                <p>{selectedRecordVisible ? "运动、餐食和请假都会收在这里。" : "这位用户选择隐藏记录，只保留排行榜展示。"}</p>
+                <p>{selectedRecordVisible ? "运动打卡、请假和月度打卡表都收在这里。" : "这位用户选择隐藏记录，只保留排行榜展示。"}</p>
               </div>
               <Image src="/checkin-assets/open-record.png" width={1000} height={1000} alt="" />
             </section>
@@ -2645,8 +2658,8 @@ export default function Home() {
                 <strong>{selectedRecordVisible ? selectedRecordUser.exerciseEntries.length : "-"}</strong>
               </article>
               <article>
-                <span>餐食记录</span>
-                <strong>{selectedRecordVisible ? Object.keys(selectedRecordUser.mealHistory).length : "-"}</strong>
+                <span>本月打卡</span>
+                <strong>{selectedRecordVisible ? getMonthCheckins(selectedRecordUser.exerciseEntries, thisMonthKey).done.size : "-"}</strong>
               </article>
               <article>
                 <span>公开状态</span>
@@ -2656,46 +2669,67 @@ export default function Home() {
 
             {selectedRecordVisible ? (
               <>
-                {selectedRecordUser.isCurrent && (
-                  <section className="records-meal-gallery" aria-label="今日餐食打卡图片">
-                    <div className="record-mini-heading">
-                      <span>今日餐食</span>
-                      <strong>{loggedMealCount}/4 餐</strong>
-                    </div>
-                    <div className="records-meal-row">
-                      {state.meals.map((meal) => {
-                        const mealDrink = meal.fruitTea ? "fruitTea" : meal.milkTea ? "milkTea" : null;
-                        return (
-                          <button
-                            className={mealPhotos[meal.id] || meal.logged ? "has-photo" : ""}
-                            key={meal.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedMealId(meal.id);
-                              setView("diet");
-                            }}
-                          >
-                            <span className="album-plate" aria-hidden="true">
-                              <Image className="album-plate-base" src={selectedPlate.image} width={1000} height={1000} alt="" />
-                              <span className="album-plate-food">
-                                {mealPhotos[meal.id] ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={mealPhotos[meal.id]} alt="" />
-                                ) : null}
-                              </span>
-                              {mealDrink && (
-                                <span className={`album-drink-mark ${mealDrink === "fruitTea" ? "fruit-tea" : "milk-tea"}`} aria-hidden="true">
-                                  <Image src={drinkAssets[mealDrink].image} width={860} height={1184} alt="" />
-                                </span>
+                {activeMonth && (() => {
+                  const [calYear, calMonth] = activeMonth.split("-").map(Number);
+                  const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+                  const leadingBlanks = (new Date(calYear, calMonth - 1, 1).getDay() || 7) - 1; // 周一开头
+                  const { done, rest } = getMonthCheckins(selectedRecordUser.exerciseEntries, activeMonth);
+                  const cells: (number | null)[] = [
+                    ...Array.from({ length: leadingBlanks }, () => null),
+                    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+                  ];
+                  return (
+                    <section className="history-sheet month-calendar" aria-label="月度打卡表">
+                      <div className="month-calendar-head">
+                        <button type="button" onClick={() => setCalendarMonth(shiftMonth(activeMonth, -1))} aria-label="上个月">‹</button>
+                        <strong>{calYear}年{calMonth}月 · 打卡表</strong>
+                        <button
+                          type="button"
+                          disabled={activeMonth >= thisMonthKey}
+                          onClick={() => setCalendarMonth(shiftMonth(activeMonth, 1))}
+                          aria-label="下个月"
+                        >
+                          ›
+                        </button>
+                      </div>
+                      <div className="month-weekdays" aria-hidden="true">
+                        {["一", "二", "三", "四", "五", "六", "日"].map((label) => (
+                          <span key={label}>{label}</span>
+                        ))}
+                      </div>
+                      <div className="month-grid">
+                        {cells.map((day, index) => {
+                          if (day === null) return <span className="month-cell empty" key={`blank-${index}`} />;
+                          const dateKey = `${activeMonth}-${String(day).padStart(2, "0")}`;
+                          const status = done.has(dateKey) ? "done" : rest.has(dateKey) ? "rest" : dateKey > todayKey ? "future" : "miss";
+                          return (
+                            <span
+                              className={`month-cell ${status}${dateKey === todayKey ? " today" : ""}`}
+                              key={dateKey}
+                              aria-label={`${calMonth}月${day}日${status === "done" ? " 已打卡" : status === "rest" ? " 请假" : ""}`}
+                            >
+                              <small>{day}</small>
+                              {status === "done" && (
+                                <svg className="paw-mark" viewBox="0 0 24 24" aria-hidden="true">
+                                  <ellipse cx="6" cy="9" rx="2.2" ry="2.8" />
+                                  <ellipse cx="10" cy="5.6" rx="2.2" ry="2.8" />
+                                  <ellipse cx="14.6" cy="5.6" rx="2.2" ry="2.8" />
+                                  <ellipse cx="18.4" cy="9.2" rx="2.2" ry="2.8" />
+                                  <path d="M12.3 10.6c-3.4 0-6.4 3.6-6.4 6.3 0 2 1.6 2.9 3.3 2.9 1.3 0 2-.6 3.1-.6s1.8.6 3.1.6c1.7 0 3.3-.9 3.3-2.9 0-2.7-3-6.3-6.4-6.3Z" />
+                                </svg>
                               )}
+                              {status === "rest" && <b className="rest-mark">休</b>}
                             </span>
-                            <span>{meal.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-                )}
+                          );
+                        })}
+                      </div>
+                      <p className="month-summary">
+                        {activeMonth === thisMonthKey ? "本月" : `${calMonth}月`}打卡 <strong>{done.size}</strong> 天
+                        {rest.size > 0 ? ` · 请假 ${rest.size} 天` : ""}
+                      </p>
+                    </section>
+                  );
+                })()}
 
                 <section className="history-sheet" aria-label="过往运动记录">
                   <div className="record-mini-heading">
@@ -2738,50 +2772,6 @@ export default function Home() {
                   ))}
                 </section>
 
-                <section className="history-sheet" aria-label="过往餐食记录">
-                  <div className="record-mini-heading">
-                    <button type="button" onClick={() => setShowAllMealHistory((current) => !current)}>
-                      {showAllMealHistory ? "收起餐食" : "全部餐食"}
-                    </button>
-                    <strong>{showAllMealHistory ? selectedRecordMeals.length : Math.min(selectedRecordMeals.length, 7)} / {selectedRecordMeals.length} 天</strong>
-                  </div>
-                  {selectedRecordMeals.length === 0 ? (
-                    <p>还没有保存过餐盘。点击“保存今日餐盘”后，这一天会进入餐食历史。</p>
-                  ) : displayedRecordMeals.map((mealDay) => (
-                    <article className="history-entry meal-history-entry" key={mealDay.date}>
-                      <span className="history-date">{mealDay.date.slice(5)}</span>
-                      <div className="meal-history-body">
-                        <div className="meal-history-plates">
-                          {defaultMeals.map((mealBase) => {
-                            const meal = mealDay.meals.find((item) => item.id === mealBase.id) ?? mealBase;
-                            const mealDrink = meal.fruitTea ? "fruitTea" : meal.milkTea ? "milkTea" : null;
-                            const savedPhoto = mealDay.mealPhotos?.[meal.id];
-                            return (
-                              <span className={meal.logged ? "meal-history-plate logged" : "meal-history-plate"} key={meal.id}>
-                                <span className="album-plate" aria-hidden="true">
-                                  <Image className="album-plate-base" src={selectedPlate.image} width={1000} height={1000} alt="" />
-                                  <span className="album-plate-food">
-                                    {savedPhoto ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={savedPhoto} alt="" />
-                                    ) : null}
-                                  </span>
-                                  {mealDrink && (
-                                    <span className={`album-drink-mark ${mealDrink === "fruitTea" ? "fruit-tea" : "milk-tea"}`} aria-hidden="true">
-                                      <Image src={drinkAssets[mealDrink].image} width={860} height={1184} alt="" />
-                                    </span>
-                                  )}
-                                </span>
-                                <small>{meal.label}</small>
-                              </span>
-                            );
-                          })}
-                        </div>
-                        <small className="meal-history-score">{mealDay.loggedMealCount}/4 餐 · {mealDay.score} 分{mealDay.score === 100 ? ` · +${perfectMealPointReward}积分` : ""}</small>
-                      </div>
-                    </article>
-                  ))}
-                </section>
               </>
             ) : (
               <section className="private-sheet">
@@ -2862,10 +2852,6 @@ export default function Home() {
               <div className="point-rule-card">
                 <span>运动打卡</span>
                 <strong>+{exercisePointReward} 积分 / 天</strong>
-              </div>
-              <div className="point-rule-card">
-                <span>餐盘满分</span>
-                <strong>+{perfectMealPointReward} 积分</strong>
               </div>
               <div className="point-rule-card weekly-goal-card">
                 <span>每周目标</span>
@@ -3257,7 +3243,7 @@ export default function Home() {
               <Image className="success-main-art" src="/checkin-assets/success-shiba.png" width={1000} height={1000} alt="" priority={false} />
               <h1>贴好啦</h1>
               <p>{successText}</p>
-              <div className="success-preview-grid" aria-label="今日打卡预览">
+              <div className="success-preview-grid single" aria-label="今日打卡预览">
                 <article className="success-preview-card">
                   <span>运动打卡</span>
                   <div className="success-photo-frame">
@@ -3269,24 +3255,6 @@ export default function Home() {
                     )}
                   </div>
                   <strong>{todayExercise?.tag ?? selectedExerciseTag}</strong>
-                </article>
-                <article className="success-preview-card">
-                  <span>今日餐盘</span>
-                  <div className="success-plate-preview" aria-hidden="true">
-                    <Image className="success-plate-base" src={selectedPlate.image} width={1000} height={1000} alt="" />
-                    <span className="success-plate-food">
-                      {successMealPhoto ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={successMealPhoto} alt="" />
-                      ) : null}
-                    </span>
-                    {successMealDrink && (
-                      <span className={`success-drink-mark ${successMealDrink}`}>
-                        <Image src={drinkAssets[successMealDrink].image} width={860} height={1184} alt="" />
-                      </span>
-                    )}
-                  </div>
-                  <strong>{successMeal.label}</strong>
                 </article>
               </div>
               <div className="split-actions">
