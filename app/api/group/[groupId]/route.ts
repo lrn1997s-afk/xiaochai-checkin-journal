@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/app/lib/db";
 import { getSessionUser } from "@/app/lib/session";
+import { isGroupMember } from "@/app/lib/groups";
 
 type MemberRow = {
   username: string;
@@ -23,6 +24,11 @@ export async function GET(request: Request, context: { params: Promise<{ groupId
   const { groupId } = await context.params;
   if (!groupId) {
     return NextResponse.json({ error: "缺少群组 ID" }, { status: 400 });
+  }
+
+  // 只有群成员（或管理员）能看这个群的数据
+  if (!user.isAdmin && !(await isGroupMember(user.id, groupId))) {
+    return NextResponse.json({ error: "你还不在这个群里" }, { status: 403 });
   }
 
   try {

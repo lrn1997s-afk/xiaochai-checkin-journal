@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/app/lib/db";
 import { getSessionUser } from "@/app/lib/session";
+import { applyGroupTruth, getGroupIdsFor } from "@/app/lib/groups";
 
 type StoredState = Record<string, unknown>;
 
@@ -37,7 +38,9 @@ export async function GET() {
     // 管理员标记以 users 表为准：读取时按服务端真源回填，本地存的 isAdmin 不作数。
     let state = row?.state_json ?? null;
     if (state && typeof state === "object") {
-      state = { ...(state as Record<string, unknown>), isAdmin: user.isAdmin };
+      // 加入了哪些群以服务器的成员表为准
+      const groupIds = await getGroupIdsFor(user.id);
+      state = applyGroupTruth({ ...(state as Record<string, unknown>), isAdmin: user.isAdmin }, groupIds);
     }
     return NextResponse.json({
       state,
@@ -70,6 +73,9 @@ export async function PUT(request: Request) {
     const jsonSafeState = JSON.parse(JSON.stringify(body.state)) as StoredState;
     // 不允许通过保存 state 把自己变成管理员：isAdmin 一律以 users 表为准。
     jsonSafeState.isAdmin = user.isAdmin;
+    // 群成员关系由加群/退群接口管理，这里不信任手机传上来的 groupIds，统一用服务器的。
+    const truthGroupIds = await getGroupIdsFor(user.id);
+    Object.assign(jsonSafeState, applyGroupTruth(jsonSafeState, truthGroupIds));
 
     const existingRows = await sql<{ state_json: unknown; updated_at: unknown }[]>`
       select state_json, updated_at from user_states where user_id = ${user.id} limit 1
@@ -88,7 +94,6 @@ export async function PUT(request: Request) {
         // 极少数情况：刚好有另一个请求同时插入了，让客户端重新拉一次再合并。
         return conflictResponse(user.id);
       }
-      await syncGroupMemberships(user.id, jsonSafeState);
       return NextResponse.json({ ok: true, updatedAt: toIso(inserted[0].updated_at) });
     }
 
@@ -137,7 +142,6 @@ export async function PUT(request: Request) {
       return conflictResponse(user.id);
     }
 
-    await syncGroupMemberships(user.id, jsonSafeState);
     return NextResponse.json({ ok: true, updatedAt: toIso(updated[0].updated_at) });
   } catch (error) {
     console.error("save state failed", error);
@@ -159,18 +163,4 @@ async function conflictResponse(userId: number) {
     },
     { status: 409 }
   );
-}
-
-// 把这份数据里记录的"我加入了哪些群组"同步到一张单独的群组成员表，
-// 这样查"这个群组里都有谁"的时候不用去扫描每个人的完整数据。
-async function syncGroupMemberships(userId: number, state: StoredState) {
-  const groupIds = Array.isArray(state.groupIds)
-    ? (state.groupIds as unknown[]).filter((g): g is string => typeof g === "string" && g !== "personal")
-    : [];
-
-  await sql`delete from group_memberships where user_id = ${userId}`;
-  if (groupIds.length > 0) {
-    const rows = groupIds.map((groupId) => ({ user_id: userId, group_id: groupId }));
-    await sql`insert into group_memberships ${sql(rows, "user_id", "group_id")}`;
-  }
 }

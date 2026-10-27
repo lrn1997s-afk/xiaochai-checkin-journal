@@ -182,7 +182,8 @@ function mergeAppState(local: AppState, remote: AppState): AppState {
     exercisePointDates: unionDates(remote.exercisePointDates, local.exercisePointDates),
     mealRewardDates: unionDates(remote.mealRewardDates, local.mealRewardDates),
     exercisePhotos: { ...(remote.exercisePhotos ?? {}), ...(local.exercisePhotos ?? {}) },
-    groupIds: Array.from(new Set([...(remote.groupIds ?? []), ...(local.groupIds ?? [])])),
+    // 加入了哪些群以服务器为准（服务器从成员表里填好的）
+    groupIds: remote.groupIds?.length ? remote.groupIds : local.groupIds,
     points: Math.max(remote.points ?? 0, local.points ?? 0),
     onboarded: remote.onboarded || local.onboarded,
     mascotClaimed: remote.mascotClaimed || local.mascotClaimed,
@@ -912,6 +913,7 @@ export default function Home() {
   const [statusBarTime, setStatusBarTime] = useState("--:--");
   const [newGroupName, setNewGroupName] = useState("");
   const [joinGroupCode, setJoinGroupCode] = useState("");
+  const [groupBusy, setGroupBusy] = useState(false);
   const [exercisePhotoPreview, setExercisePhotoPreview] = useState<ExercisePhotoPreview | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const clickAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -947,7 +949,8 @@ export default function Home() {
           mealHistory: {},
         }))
     : null;
-  const groupUsers = realGroupUsers ?? communityUsers.filter((user) => (user.groupIds ?? ["group-friends"]).includes(currentGroup.id));
+  // 只显示真实成员，不再用演示数据凑数
+  const groupUsers = realGroupUsers ?? [];
   const soundMuted = state.soundMuted ?? false;
 
   const mascot = mascotOptions.find((item) => item.id === state.mascot) ?? mascotOptions[0];
@@ -1178,6 +1181,8 @@ export default function Home() {
       window.localStorage.setItem("cozy-health-state-owner", username);
       setRemoteLoaded(true);
       setSyncStatus("synced");
+      // 群列表以服务器为准
+      void loadMyGroups();
     } catch {
       setSyncStatus("error");
     }
@@ -1476,7 +1481,32 @@ export default function Home() {
     setShowAllMealHistory(false);
   }
 
-  function createGroup() {
+  // 把服务器返回的"我加入的群"写进本地，作为群列表的唯一来源。
+  function applyServerGroups(serverGroups: { id: string; name: string; code: string }[], switchTo?: string) {
+    setState((current) => {
+      const groupIds = ["personal", ...serverGroups.map((group) => group.id)];
+      const desired = switchTo ?? current.currentGroupId ?? "personal";
+      return {
+        ...current,
+        groups: [...defaultGroups.filter((group) => group.isPersonal), ...serverGroups.map((group) => ({ id: group.id, name: group.name, code: group.code }))],
+        groupIds,
+        currentGroupId: groupIds.includes(desired) ? desired : "personal",
+      };
+    });
+  }
+
+  async function loadMyGroups(switchTo?: string) {
+    try {
+      const res = await fetch("/api/groups");
+      if (!res.ok) return;
+      const data = (await res.json()) as { groups: { id: string; name: string; code: string }[] };
+      applyServerGroups(data.groups ?? [], switchTo);
+    } catch {
+      // 网络不好就先沿用本地的，下次再拉
+    }
+  }
+
+  async function createGroup() {
     if (!state.isAdmin) {
       setSettingsFeedback("创建群组暂时由管理员处理。");
       return;
@@ -1486,58 +1516,92 @@ export default function Home() {
       setSettingsFeedback("先给群组起一个名字。");
       return;
     }
-    const id = `group-${Date.now().toString(36)}`;
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-    setState((current) => ({
-      ...current,
-      currentGroupId: id,
-      groupIds: Array.from(new Set([...normalizeUserGroupIds(current.groupIds), id])),
-      groups: [
-        ...(current.groups?.length ? current.groups : defaultGroups),
-        { id, name, code },
-      ],
-    }));
-    setSelectedRecordUserId("me");
-    setNewGroupName("");
-    setSettingsFeedback(`已创建「${name}」，邀请码 ${code}。`);
+    if (groupBusy) return;
+    setGroupBusy(true);
+    try {
+      const res = await fetch("/api/groups/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.group) {
+        setSettingsFeedback(data.error ?? "创建失败，再试一次。");
+        return;
+      }
+      await loadMyGroups(data.group.id);
+      setSelectedRecordUserId("me");
+      setNewGroupName("");
+      setSettingsFeedback(`已创建「${data.group.name}」，邀请码 ${data.group.code}。把邀请码发给朋友就能加入。`);
+    } catch {
+      setSettingsFeedback("网络请求失败，稍后再试。");
+    } finally {
+      setGroupBusy(false);
+    }
   }
 
-  function joinGroup() {
+  async function joinGroup() {
     const code = joinGroupCode.trim().toUpperCase();
-    const foundGroup = groups.find((group) => group.code.toUpperCase() === code);
-    if (!foundGroup) {
-      setSettingsFeedback("没有找到这个邀请码，先确认一下大小写和数字。");
+    if (!code) {
+      setSettingsFeedback("先输入邀请码。");
       return;
     }
-    setState((current) => ({
-      ...current,
-      currentGroupId: foundGroup.id,
-      groupIds: Array.from(new Set([...normalizeUserGroupIds(current.groupIds), foundGroup.id])),
-    }));
-    setSelectedRecordUserId("me");
-    setShowAllMealHistory(false);
-    setJoinGroupCode("");
-    setSettingsFeedback(`已加入并切换到「${foundGroup.name}」。`);
+    if (groupBusy) return;
+    setGroupBusy(true);
+    try {
+      const res = await fetch("/api/groups/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.group) {
+        setSettingsFeedback(data.error ?? "加入失败，再试一次。");
+        return;
+      }
+      await loadMyGroups(data.group.id);
+      setSelectedRecordUserId("me");
+      setShowAllMealHistory(false);
+      setJoinGroupCode("");
+      setSettingsFeedback(`已加入并切换到「${data.group.name}」。`);
+    } catch {
+      setSettingsFeedback("网络请求失败，稍后再试。");
+    } finally {
+      setGroupBusy(false);
+    }
   }
 
-  function leaveGroup(groupId: string) {
+  async function leaveGroup(groupId: string) {
     const targetGroup = groups.find((group) => group.id === groupId);
     if (!targetGroup || targetGroup.isPersonal) {
       setSettingsFeedback("个人手帐不能退出。");
       return;
     }
-    setState((current) => {
-      const nextGroupIds = normalizeUserGroupIds(current.groupIds).filter((id) => id !== groupId);
-      return {
-        ...current,
-        groupIds: nextGroupIds,
-        currentGroupId: current.currentGroupId === groupId ? "personal" : current.currentGroupId,
-      };
-    });
-    setSelectedRecordUserId("me");
-    setShowAllMealHistory(false);
-    setSettingsFeedback(`已退出「${targetGroup.name}」。`);
+    if (!window.confirm(`确定退出「${targetGroup.name}」吗？之后可以用邀请码再加回来。`)) return;
+    if (groupBusy) return;
+    setGroupBusy(true);
+    try {
+      const res = await fetch("/api/groups/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSettingsFeedback(data.error ?? "退出失败，再试一次。");
+        return;
+      }
+      await loadMyGroups();
+      setSelectedRecordUserId("me");
+      setShowAllMealHistory(false);
+      setSettingsFeedback(`已退出「${targetGroup.name}」。`);
+    } catch {
+      setSettingsFeedback("网络请求失败，稍后再试。");
+    } finally {
+      setGroupBusy(false);
+    }
   }
+
 
   function saveExercise(photo?: string) {
     const finalExerciseTag =

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/app/lib/db";
 import { getSessionUser } from "@/app/lib/session";
+import { isGroupMember } from "@/app/lib/groups";
 
 // 周冠军统计：直接从每个成员的运动记录里现算，不建新表、不用定时任务。
 // 规则：每个群、每一周（周一到周日）运动打卡最多的人拿一次冠军，累计次数就是勋章数字。
@@ -37,6 +38,11 @@ export async function GET(_request: Request, context: { params: Promise<{ groupI
   const { groupId } = await context.params;
   if (!groupId) {
     return NextResponse.json({ error: "缺少群组 ID" }, { status: 400 });
+  }
+
+  // 只有群成员（或管理员）能看这个群的数据
+  if (!user.isAdmin && !(await isGroupMember(user.id, groupId))) {
+    return NextResponse.json({ error: "你还不在这个群里" }, { status: 403 });
   }
 
   try {
